@@ -1,0 +1,23 @@
+*.pyc
+OLD
+tags
+test
+models
+.idea
+*.png
+*.h5
+*.mat
+*.tif
+*.tiff
+*.events*
+# tensorflow
+p2v/embedding
+checkpoint
+*.ckpt*
+events.out*
+*.pbtxt
+*.meta
+*.index
+*.data*
+*.fuse*
+

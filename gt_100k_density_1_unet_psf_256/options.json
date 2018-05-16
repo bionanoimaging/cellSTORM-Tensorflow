@@ -1,0 +1,23 @@
+{
+    "batch_size": 8, 
+    "beta1": 0.5, 
+    "checkpoint": null, 
+    "display_freq": 0, 
+    "gan_weight": 1.0, 
+    "input_dir": "/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/MATLAB/cellSTORM-KERAS/images/MOV_2018_04_20_16_31_44_Sample_Larve_ISO1200_texp1_60.tif_bilinear_smallpatch", 
+    "l1_weight": 1000.0, 
+    "lr": 0.0001, 
+    "max_epochs": 100, 
+    "max_steps": null, 
+    "mode": "train", 
+    "ndf": 32, 
+    "ngf": 32, 
+    "output_dir": "gt_100k_density_1_unet_psf_256", 
+    "output_filetype": "png", 
+    "progress_freq": 50, 
+    "save_freq": 500, 
+    "scale_size": 256, 
+    "seed": 1684442114, 
+    "summary_freq": 50, 
+    "trace_freq": 0
+}

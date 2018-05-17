@@ -87,55 +87,46 @@ def save_images(fetches, output_dir, step=None):
     return filesets
 
 # load database as h5 file from disk
-def load_examples_h5(filename, batch_size, mode = None):
-    #filename = './cellstorm_data.h5'
-    #BATCH_SIZE = 4
+def load_examples_h5(filename, scale_size, batch_size, mode):
+    filename = './cellstorm_data.h5'
+    BATCH_SIZE = 4
     # Load training data and divide it to training and validation sets
     # borrowed from Deep-STORM
     matfile = h5py.File(filename, 'r')
+    matfile = h5py.File(filename, 'r')
     
-    # get the matrices
-    patches_train = np.float32(np.array(matfile['patches']))
-    heatmaps_train = np.float32(np.array(matfile['heatmaps']))
-    spikes_train = np.float32(np.array(matfile['spikes']))
+    X_train = np.float32(np.array(matfile['patches']))
+    Y_train = np.float32(np.array(matfile['heatmaps']))
     
-    # preprocess data 255->1->0..1 -> -1..1 #TODO: Alternativelly: Whitening?!
-    patches_train = (2*patches_train/255.)-1
-    heatmaps_train = (2*heatmaps_train/255.)-1
-    spikes_train = (2*spikes_train/255.)-1
-    
-    count = patches_train.shape[1]
     # randomize the order of the data
     # assuming data in order: [N_smaples, Width, Height, Color-channels]
-    shuffle_order = np.arange(count)
+    shuffle_order = np.arange(X_train.shape[0])
     shuffle_order = np.random.shuffle(shuffle_order)
     
-    patches_train = patches_train[shuffle_order, :, :]
-    heatmaps_train = heatmaps_train[shuffle_order, :, :]
-    spikes_train = spikes_train[shuffle_order, :, :]
+    X_train = X_train[shuffle_order, :, :]
+    Y_train = Y_train[shuffle_order, :, :]
     
     # convert Numpy to Tensorflow's tensor
-    if(0):
-        # this is not possible! toooo much memory! 
-        patches_train_tensor = tf.transpose(tf.convert_to_tensor(patches_train), perm=[1, 2, 3, 0])
-        heatmaps_train_tensor = tf.transpose(tf.convert_to_tensor(heatmaps_train), perm=[1, 2, 3, 0])
-        spikes_train_tensor = tf.transpose(tf.convert_to_tensor(spikes_train), perm=[1, 2, 3, 0])
+    X_train_tensor = tf.transpose(tf.convert_to_tensor(X_train), perm=[1, 2, 3, 0])
+    Y_train_tensor = tf.transpose(tf.convert_to_tensor(Y_train), perm=[1, 2, 3, 0])
+    
+    # create input pipeline
+    X_train_tensor = tf.train.slice_input_producer([X_train_tensor], shuffle=False)
+    Y_train_tensor = tf.train.slice_input_producer([Y_train_tensor], shuffle=False)
     
     
-    steps_per_epoch = int(math.ceil(count / batch_size))
+    # pack into shuffle batch
+    batch = tf.train.shuffle_batch([X_train_tensor, Y_train_tensor],
+                                   batch_size=BATCH_SIZE, capacity=BATCH_SIZE * 5,
+                                   min_after_dequeue=BATCH_SIZE * 3)
+    
     
     print('Reading finished.')
     
-    print('Number of Training Examples: %d' % count)
+    print('Number of Training Examples: %d' % X_train.shape[1])
+   
+    return batch
     
-    return Examples(
-        paths=filename,
-        inputs=patches_train,
-        targets=heatmaps_train,
-        spikes=spikes_train,
-        count=count,
-        steps_per_epoch=steps_per_epoch,
-    )
 
 # load image-pairs from disk 
 def load_examples(input_dir, scale_size, batch_size, mode):
@@ -195,7 +186,7 @@ def load_examples(input_dir, scale_size, batch_size, mode):
         spikes_images = transform(spikes, scale_size)
 
 
-    
+
     paths_batch, inputs_batch, targets_batch, spikes_batch = tf.train.batch([paths, input_images, target_images, spikes_images], batch_size=batch_size)
     steps_per_epoch = int(math.ceil(len(input_paths) / batch_size))
 

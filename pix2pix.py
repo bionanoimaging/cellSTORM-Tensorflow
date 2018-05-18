@@ -27,13 +27,11 @@ parser.add_argument("--mode", required=True, choices=["train", "test", "export"]
 parser.add_argument("--output_dir", default='./test', help="where to put output files")
 parser.add_argument("--seed", type=int)
 parser.add_argument("--checkpoint", default=None, help="directory with checkpoint to resume training from or use for testing")
-
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
-parser.add_argument("--display_freq", type=int, default=500, help="write current training images every display_freq steps")
+parser.add_argument("--display_freq", type=int, default=100, help="write current training images every display_freq steps and update summaries every display_freq steps")
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 
 parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
@@ -50,25 +48,25 @@ parser.add_argument("--is_video", type=int, default=0, help="input for testing i
 parser.add_argument("--roi_size", type=int, default=256, help="size of the roi where the frames should be cropped out")
 parser.add_argument("--x_center", type=int, default=256, help="size of the roi where the frames should be cropped out")
 parser.add_argument("--y_center", type=int, default=256, help="size of the roi where the frames should be cropped out")
+parser.add_argument("--how_many_gpu", type=int, default=1, help="how many GPUS to use? [1..2")
   
-# execute explicitly on GPU
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 opt = parser.parse_args()
 
 EPS = 1e-12
-SCALE_SIZE = 256
 
 
 
-
-
-
-
-
+# execute explicitly on GPU
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
+if(opt.how_many_gpu==2):
+    os.environ["CUDA_VISIBLE_DEVICES"]="0"
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"]="0,1"
+        
+    
 
 
 
@@ -113,15 +111,34 @@ else:
     if(0):
         examples = data.load_examples(opt.input_dir, opt.scale_size, opt.batch_size, opt.mode)
     else:
-        examples = data.load_examples_h5('./cellstorm_data.h5', batch_size=4)
+        # define the path to the datafiles
+        data_file_1 = './data/gt_100k_density_1.csv.h5'
+        data_file_2 = './data/2017-12-18_18.29.45.mp4_256_Tirf_v2_from_video_v2_fakeB_2k.csv.h5'
+        data_file_3 = './data/MOV_2018_04_20_16_31_44_Sample_Larve_ISO1200_texp1_60.csv.h5'
+        
+        # load each set seperatly 
+        print('Load Dataset #1')
+        examples_1 = data.load_examples_h5(data_file_1, batch_size=opt.batch_size)
+        print('Load Dataset #2')
+        examples_2 = data.load_examples_h5(data_file_2, batch_size=opt.batch_size)
+        print('Load Dataset #3')
+        examples_3 = data.load_examples_h5(data_file_3, batch_size=opt.batch_size)
+        
+        # merge the examples
+        print('Merge Datasets')
+        examples_12 = data.merge_examples(examples_1, examples_2)
+        examples = data.merge_examples(examples_12, examples_3)
+        
+        
    
 print('Data-loading complete!')     
     
 
 # create placeholders for batchfeeding
-inputs_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, examples.inputs.shape[2], examples.inputs.shape[3], 1))
-outputs_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, examples.inputs.shape[2], examples.inputs.shape[3], 1))
-spikes_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, examples.inputs.shape[2], examples.inputs.shape[3], 1))
+im_xdim, im_ydim = examples.inputs.shape[1], examples.inputs.shape[2]
+inputs_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, im_xdim, im_ydim, 1))
+outputs_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, im_xdim, im_ydim, 1))
+spikes_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, im_xdim, im_ydim, 1))
 
 
 
@@ -194,13 +211,14 @@ with tf.name_scope("parameter_count"):
 saver = tf.train.Saver(max_to_keep=1)
 
 # initiate the logdir for the Tensorboard logging
-logdir = opt.output_dir if (opt.trace_freq > 0 or opt.summary_freq > 0) else None
+logdir = opt.output_dir if (opt.trace_freq > 0 or opt.display_freq > 0) else None
 
 
 
-#%%    SESSION 
 #with tf.Session() as sess:
 sess = tf.InteractiveSession()
+#%%    Start the processing in the SESSION 
+
 if(1):   
     # Run the initializer
     sess.run(init)
@@ -219,7 +237,7 @@ if(1):
         checkpoint = tf.train.latest_checkpoint(opt.checkpoint)
         saver.restore(sess, checkpoint)
     
-    max_steps = 2**12 # otherwise evtl. memory full
+    max_steps = 2**32 # otherwise evtl. memory full
     if opt.max_epochs is not None:
         max_steps = examples.steps_per_epoch * opt.max_epochs
     if opt.max_steps is not None:
@@ -285,19 +303,24 @@ if(1):
         start = time.time()
     
         for step_i in range(max_steps):
-            def should(freq):
-                return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
-    
-            if(step_i+opt.batch_size > examples.count):
-                step_i = 0
-                
+            # convert global step in local step    
             step = np.mod(step_i, examples.count)
             epoch = np.floor_divide(step_i, examples.count)
+            
+            if(step+opt.batch_size+1 > examples.count):
+                step = 0
+                
+
+            
+            def should(freq):
+                return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
+            
+            
             # evaluate result for one frame at a time
             # get the slices from the HDF5 data-stack:
-            input_np = np.transpose(examples.inputs[:,step:step+opt.batch_size,:,:], axes=(1, 2, 3, 0))
-            targets_np = np.transpose(examples.targets[:,step:step+opt.batch_size,:,:], axes=(1, 2, 3, 0))
-            spikes_np = np.transpose(examples.spikes[:,step:step+opt.batch_size,:,:], axes=(1, 2, 3, 0))
+            input_np = examples.inputs[step:step+opt.batch_size,:,:,:]
+            targets_np = examples.targets[step:step+opt.batch_size,:,:,:]
+            spikes_np = examples.spikes[step:step+opt.batch_size,:,:,:]
             
             # reduce the cost-function
             sess.run(C2Pmodel.train, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np})       
@@ -305,11 +328,7 @@ if(1):
     
             if should(opt.progress_freq):
                 discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1 = sess.run([C2Pmodel.discrim_loss, C2Pmodel.gen_loss_GAN, C2Pmodel.gen_loss_L1, C2Pmodel.gen_loss_sparse_L1])
-    
-    
-            #if should(opt.summary_freq):
-            #    fetches["summary"] = sv.summary_op
-    
+
             if should(opt.display_freq):
                 merged_summary_op = tf.summary.merge_all()
                 # Write logs at every iteration
@@ -332,6 +351,7 @@ if(1):
     
             if should(opt.progress_freq):
                 # global_step will have the correct step count if we resume from a checkpoint
+                print("Global Step: ", step_i, ", current step in data: ", step, ", epoch: ", epoch)
                 print("progress  step %d  "% step)
                 print("discrim_loss", discrim_loss)
                 print("gen_loss_GAN", gen_loss_GAN)

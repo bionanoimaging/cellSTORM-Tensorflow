@@ -1,4 +1,9 @@
 *.pyc
+tags
+test
+models
+.idea
+*.pyc
 OLD
 tags
 test

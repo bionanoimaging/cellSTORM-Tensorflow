@@ -1,7 +1,7 @@
 {
     "batch_size": 1, 
     "beta1": 0.5, 
-    "checkpoint": "good_NN", 
+    "checkpoint": "examples_2_3", 
     "display_freq": 100, 
     "gan_weight": 1.0, 
     "how_many_gpu": 1, 
@@ -21,7 +21,7 @@
     "roi_size": 256, 
     "save_freq": 5000, 
     "scale_size": 1280, 
-    "seed": 1928734535, 
+    "seed": 2020566157, 
     "trace_freq": 0, 
     "x_center": 256, 
     "y_center": 256

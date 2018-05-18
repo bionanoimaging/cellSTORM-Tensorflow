@@ -54,11 +54,20 @@ def preprocess(image):
 
 
 def deprocess(image):
+    # [-1, 1] => [0, 1]
+    image = image-np.min(image)
+    image = image/np.max(image)
+    return image #(image + 1) / 2
+
+def deprocess_tf(image):
     with tf.name_scope("deprocess"):
         # [-1, 1] => [0, 1]
-        image = image-tf.reduce_min(image)
-        image = image/tf.reduce_max(image)
-        return image #(image + 1) / 2
+        if(0):
+            image = image-tf.reduce_min(image)
+            image = image/tf.reduce_max(image)
+        else:
+            image = (image + 1) / 2
+        return image
 
         
 def save_as_tif(inputs_np, outputs_np, targets_np, experiment_name, network_name):   
@@ -77,16 +86,6 @@ def save_as_tif(inputs_np, outputs_np, targets_np, experiment_name, network_name
     tifffile.imsave(out_path_inputs, inputs_np, append=True, bigtiff=True)
     tifffile.imsave(out_path_outputs, outputs_np, append=True, bigtiff=True)
     tifffile.imsave(out_path_targets, targets_np, append=True, bigtiff=True)
-  
-# synchronize seed for image operations so that we do the same operations to both
-# input and output images
-def transform(image, scale_size):
-    r = image
-    # area produces a nice downscaling, but does nearest neighbor for upscaling
-    # assume we're going to be doing downscaling here
-    r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.BILINEAR)
-    return r
-    
 
 def merge_examples(example1, example2):
     # merge two datasets
@@ -192,77 +191,6 @@ def load_examples_h5(filename, batch_size, is_normalize = False):
         steps_per_epoch=steps_per_epoch,
     )
 
-# load image-pairs from disk 
-def load_examples(input_dir, scale_size, batch_size, mode):
-    if input_dir is None or not os.path.exists(input_dir):
-        raise Exception("input_dir does not exist")
-
-    input_paths = glob.glob(os.path.join(input_dir, "*.jpg"))
-    decode = tf.image.decode_jpeg
-    if len(input_paths) == 0:
-        input_paths = glob.glob(os.path.join(input_dir, "*.png"))
-        decode = tf.image.decode_png
-
-    if len(input_paths) == 0:
-        raise Exception("input_dir contains no image files")
-    else:
-        print("Found " + str(len(input_paths)) + " images...")
-
-    def get_name(path):
-        name, _ = os.path.splitext(os.path.basename(path))
-        return name
-
-    # if the image names are numbers, sort by the value rather than asciibetically
-    # having sorted inputs means that the outputs are sorted in test mode
-    if all(get_name(path).isdigit() for path in input_paths):
-        input_paths = sorted(input_paths, key=lambda path: int(get_name(path)))
-    else:
-        input_paths = sorted(input_paths)
-
-    with tf.name_scope("load_images"):
-        path_queue = tf.train.string_input_producer(input_paths, shuffle=mode == "train")
-        reader = tf.WholeFileReader()
-        paths, contents = reader.read(path_queue)
-        raw_input = decode(contents)
-        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
-
-        raw_input = tf.identity(raw_input)
-
-        raw_input.set_shape([None, None, 1])
-
-      
-        # break apart image pair and move to range [-1, 1]
-        width = tf.shape(raw_input)[1] # [height, width, channels]
-        inputs = preprocess(raw_input[:,0:(width/3),:])
-        spikes  = preprocess(raw_input[:,(width/3):(2*width/3),:])
-        targets = preprocess(raw_input[:,(2*width/3):-1:,:])
- 
-
-
-
-    with tf.name_scope("input_images"):
-        input_images = transform(inputs, scale_size, )
-
-    with tf.name_scope("target_images"):
-        target_images = transform(targets, scale_size)
-
-    with tf.name_scope("spikes_images"):
-        spikes_images = transform(spikes, scale_size)
-
-
-    
-    paths_batch, inputs_batch, targets_batch, spikes_batch = tf.train.batch([paths, input_images, target_images, spikes_images], batch_size=batch_size)
-    steps_per_epoch = int(math.ceil(len(input_paths) / batch_size))
-
-    return Examples(
-        paths=paths_batch,
-        inputs=inputs_batch,
-        targets=targets_batch,
-        spikes=spikes_batch,
-        count=len(input_paths),
-        steps_per_epoch=steps_per_epoch,
-    )
-
 
 
 ## create class for frame-to-frame reading
@@ -317,27 +245,33 @@ class VideoReader:
 
         # crop frame to ROI
         frame_mean = np.mean(frame, axis=2)
-        
-        
-        # Pre-Process: Normalize and zero-center
-        frame_mean = frame_mean-np.min(frame_mean)
-        frame_mean  = frame_mean/np.max(frame_mean)
-        frame_mean = frame_mean * 2. - 1.
-        
+       
+        # Calculate the coordinates for the ROI
         start_x = np.int32(self.xcenter-self.roisize/2)
         end_x = np.int32(self.xcenter+self.roisize/2)
         start_y = np.int32(self.ycenter-self.roisize/2)
         end_y = np.int32(self.ycenter+self.roisize/2)
         
+        # crop ROI
         frame_crop = frame_mean[start_x:end_x, start_y:end_y]
         #npad = ((self.padwidth, self.padwidth), (self.padwidth, self.padwidth), (0, 0))
         #frame_pad = np.pad(frame_crop, npad, 'reflect')
 
-        # resize to scale_size
-        frame_crop = scipy.misc.imresize(frame_crop, size = (self.scale_size, self.scale_size), interp='bilinear', mode='F')
-        frame_crop = np.expand_dims(np.expand_dims(frame_crop, axis = 0), axis = 3) # add zero-batch dimension and color-channel
+
+        # Pre-Process: Normalize and zero-center
+        #frame_crop = frame_crop-np.min(frame_crop)
+        frame_crop_processed  = frame_crop/np.max(frame_crop)
+        if(1):
+            frame_crop_processed = preprocess(frame_crop_processed)
+        else:
+            frame_crop_processed = (frame_crop_processed-np.mean(frame_crop_processed))/np.std(frame_crop_processed)
         
-        return frame_crop
+        # resize to scale_size
+        frame_crop_processed = scipy.misc.imresize(frame_crop_processed, size = (self.scale_size, self.scale_size), interp='bilinear', mode='F')
+        frame_crop_processed = np.expand_dims(np.expand_dims(frame_crop_processed, axis = 0), axis = 3) # add zero-batch dimension and color-channel
+        
+        
+        return frame_crop, frame_crop_processed
     
     
     def __len__(self):

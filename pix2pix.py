@@ -148,10 +148,10 @@ C2Pmodel = model.create_model(inputs_tf, outputs_tf, opt.ndf, opt.ngf, EPS, opt.
 #    C2Pmodel = model.create_model(examples.spikes, examples.targets, opt.ndf, opt.ngf, EPS, opt.gan_weight, opt.l1_weight, opt.l1_sparse_weight, opt.lr, opt.beta1)
 
  # reverse any processing on images so they can be written to disk or displayed to user
-inputs = data.deprocess(C2Pmodel.inputs)
-targets = data.deprocess(C2Pmodel.targets)
-outputs = data.deprocess(C2Pmodel.outputs)
-outputs_psf = data.deprocess(C2Pmodel.outputs_psf)
+inputs = data.deprocess_tf(C2Pmodel.inputs)
+targets = data.deprocess_tf(C2Pmodel.targets)
+outputs = data.deprocess_tf(C2Pmodel.outputs)
+outputs_psf = data.deprocess_tf(C2Pmodel.outputs_psf)
 
 def convert(image):
     return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
@@ -250,7 +250,7 @@ if(1):
         # testing
         # at most, process the test data once
         start = time.time()
-        experiment_name = opt.input_dir.split("/")[-2]
+        experiment_name = opt.input_dir.split("/")[-1]
         network_name =  opt.checkpoint
         
         for step_i in range(0, max_steps, opt.batch_size):
@@ -259,26 +259,31 @@ if(1):
             epoch = np.floor_divide(step_i, examples.count)
             # if a video is selected read frames instead of images directly from disk
             if opt.is_video == True:
-                input_frame = VideoReader.__getitem__(step)
+                inputframe_raw, input_frame_processed = VideoReader.__getitem__(step)
             
                 
-                inputs_np, outputs_np, outputs_psf_np = sess.run([inputs, outputs, outputs_psf], feed_dict= {inputs_tf : input_frame})
+                inputs_np, outputs_np, outputs_psf_np = sess.run([inputs, outputs, outputs_psf], feed_dict= {inputs_tf : input_frame_processed})
             
                 # hacky workaround to keep model as is
                 outputs_np = np.squeeze(np.array(outputs_np))
-                inputs_np =  np.squeeze(np.array(inputs_np))
+                inputs_np =  np.squeeze(inputframe_raw)
                 outputs_psf_np = np.squeeze(np.array(outputs_psf_np))
                 
                 # Deprocess bring back to 0..1
-                outputs_np = (outputs_np + 1) / 2
-                inputs_np = (inputs_np + 1) / 2
-                outputs_psf_np = (outputs_psf_np + 1) / 2
-                
-                # Convert Back to uint8
-                outputs_np = np.uint8(2**8*outputs_np)
-                inputs_np = np.uint8(2**8*inputs_np)
-                outputs_psf_np = np.uint8(2**8*outputs_psf_np)
-                 
+                if(0):
+                    outputs_np = (outputs_np + 1) / 2
+                    inputs_np = (inputs_np + 1) / 2
+                    outputs_psf_np = (outputs_psf_np + 1) / 2
+                if(1):
+                    # deprocess the data -1..1 -> 0..1
+                    outputs_np = data.deprocess(outputs_np)
+                    outputs_psf_np = data.deprocess(outputs_psf_np)
+                    
+                if(1):    
+                    # Convert Back to uint8
+                    outputs_np = np.uint8(2**8*outputs_np)
+                    outputs_psf_np = np.uint8(2**8*outputs_psf_np)
+                     
                 
                 # save frames to TIF 
                 data.save_as_tif(inputs_np, outputs_np, outputs_psf_np, experiment_name, network_name)

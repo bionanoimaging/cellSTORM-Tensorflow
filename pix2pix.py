@@ -28,7 +28,7 @@ parser.add_argument("--output_dir", default='./test', help="where to put output 
 parser.add_argument("--seed", type=int)
 parser.add_argument("--checkpoint", default=None, help="directory with checkpoint to resume training from or use for testing")
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
-parser.add_argument("--max_epochs", type=int, help="number of training epochs")
+parser.add_argument("--max_epochs", type=int, default = 10, help="number of training epochs")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
 parser.add_argument("--display_freq", type=int, default=100, help="write current training images every display_freq steps and update summaries every display_freq steps")
@@ -50,6 +50,8 @@ parser.add_argument("--x_center", type=int, default=256, help="size of the roi w
 parser.add_argument("--y_center", type=int, default=256, help="size of the roi where the frames should be cropped out")
 parser.add_argument("--how_many_gpu", type=int, default=1, help="how many GPUS to use? [1..2")
   
+
+
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
@@ -124,11 +126,30 @@ else:
         print('Load Dataset #3')
         examples_3 = data.load_examples_h5(data_file_3, batch_size=opt.batch_size)
         
-        # merge the examples
+        # merge the examples, but only put the same number of samples from each dataset! 
+        # => avoids predomination of one specific dataset
+        # get num of samples take the min of all 
+        num_samples = np.int32(np.min((examples_1.inputs.shape[0], examples_2.inputs.shape[0], examples_3.inputs.shape[0])))
+        print('Number of samples for each Dataset: ', num_samples)
+        
+        # limmit the number of samples to the same number 
+        examples_1 = data.limit_numsamples(examples_1, num_samples)
+        examples_2 = data.limit_numsamples(examples_2, num_samples)
+        examples_3 = data.limit_numsamples(examples_3, num_samples)
         print('Merge Datasets')
         examples_12 = data.merge_examples(examples_1, examples_2)
         examples = data.merge_examples(examples_12, examples_3)
-        
+
+       
+        # join all variables from all datasets together
+        all_inputs = examples.inputs
+        all_targets = examples.targets
+        all_spikes = examples.spikes
+        max_steps = examples.inputs.shape[0]
+
+        # shuffle along first dimeions = numsaples
+        from sklearn.utils import shuffle
+        all_inputs, all_targets, all_spikes = shuffle(all_inputs, all_targets, all_spikes, random_state=0)
         
    
 print('Data-loading complete!')     
@@ -236,15 +257,7 @@ if(1):
         print("loading model from checkpoint")
         checkpoint = tf.train.latest_checkpoint(opt.checkpoint)
         saver.restore(sess, checkpoint)
-    
-    max_steps = 2**32 # otherwise evtl. memory full
-    if opt.max_epochs is not None:
-        max_steps = examples.steps_per_epoch * opt.max_epochs
-    if opt.max_steps is not None:
-        max_steps = opt.max_steps
-    
-    if opt.is_video:
-        max_steps = VideoReader.__len__()
+
     
     if opt.mode == "test":
         # testing
@@ -253,12 +266,16 @@ if(1):
         experiment_name = opt.input_dir.split("/")[-1]
         network_name =  opt.checkpoint
         
+        if opt.is_video:
+            max_steps = VideoReader.__len__()
+        
         for step_i in range(0, max_steps, opt.batch_size):
             
             step = np.mod(step_i, examples.count)
             epoch = np.floor_divide(step_i, examples.count)
             # if a video is selected read frames instead of images directly from disk
             if opt.is_video == True:
+				
                 inputframe_raw, input_frame_processed = VideoReader.__getitem__(step)
             
                 
@@ -287,17 +304,6 @@ if(1):
                 
                 # save frames to TIF 
                 data.save_as_tif(inputs_np, outputs_np, outputs_psf_np, experiment_name, network_name)
-            else:
-                
-                # evaluate result for one frame at a time
-                # get the slices from the HDF5 data-stack:
-                input_np = np.transpose(examples.inputs[:,step:step+opt.batch_size,:,:], axes=(1, 2, 3, 0))
-                targets_np = np.transpose(examples.targets[:,step:step+opt.batch_size,:,:], axes=(1, 2, 3, 0))
-                spikes_np = np.transpose(examples.spikes[:,step:step+opt.batch_size,:,:], axes=(1, 2, 3, 0))
-                
-                
-                nputs_np, outputs_np, outputs_psf_np = sess.run([inputs, outputs, outputs_psf], feed_dict= {inputs_tf:input_np, outputs_tf:targets_np})
-    
             
             print("evaluated image " + str(step))
             
@@ -306,65 +312,72 @@ if(1):
     else:
         # training
         start = time.time()
+        
+
+        
+        
+        
     
-        for step_i in range(max_steps):
-            # convert global step in local step    
-            step = np.mod(step_i, examples.count)
-            epoch = np.floor_divide(step_i, examples.count)
+        for epoch_i in range(opt.max_epochs):
+
+            # calculate randomized selection of samples at training time 
+            iter_batches = np.int32((max_steps-opt.batch_size)/opt.batch_size)
+            iter_index = opt.batch_size*np.arange(iter_batches)
+            np.random.shuffle(iter_index) # shuffle indices 
             
-            if(step+opt.batch_size+1 > examples.count):
-                step = 0
+            for step in range(max_steps-opt.batch_size):
                 
 
-            
-            def should(freq):
-                return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
-            
-            
-            # evaluate result for one frame at a time
-            # get the slices from the HDF5 data-stack:
-            input_np = examples.inputs[step:step+opt.batch_size,:,:,:]
-            targets_np = examples.targets[step:step+opt.batch_size,:,:,:]
-            spikes_np = examples.spikes[step:step+opt.batch_size,:,:,:]
-            
-            # reduce the cost-function
-            sess.run(C2Pmodel.train, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np})       
-    
-    
-            if should(opt.progress_freq):
-                discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1 = sess.run([C2Pmodel.discrim_loss, C2Pmodel.gen_loss_GAN, C2Pmodel.gen_loss_L1, C2Pmodel.gen_loss_sparse_L1])
-
-            if should(opt.display_freq):
-                merged_summary_op = tf.summary.merge_all()
-                # Write logs at every iteration
                 
-                print("recording summary")
-                summary, nputs_np, outputs_np, outputs_psf_np = sess.run([merged_summary_op, inputs, outputs, outputs_psf], feed_dict= {inputs_tf:input_np, outputs_tf:targets_np})
+                def should(freq):
+                    return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
+                
+                
+                # evaluate result for one frame at a time
+                # get the slices from the HDF5 data-stack:
+                index_i = iter_index[np.int32(step/4)]
+                input_np = all_inputs[index_i:index_i+opt.batch_size,:,:,:]
+                targets_np = all_targets[index_i:index_i+opt.batch_size,:,:,:]
+                spikes_np = all_spikes[index_i:index_i+opt.batch_size,:,:,:]
+                
+                # reduce the cost-function
+                sess.run(C2Pmodel.train, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np})       
+        
+        
+                if should(opt.progress_freq):
+                    discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1 = sess.run([C2Pmodel.discrim_loss, C2Pmodel.gen_loss_GAN, C2Pmodel.gen_loss_L1, C2Pmodel.gen_loss_sparse_L1])
+    
+                if should(opt.display_freq):
+                    merged_summary_op = tf.summary.merge_all()
+                    # Write logs at every iteration
                     
-                # add all summaries to the writer
-                # Merge all summaries into a single op            
-                summary_writer.add_summary(summary, step)
+                    print("recording summary")
+                    summary, nputs_np, outputs_np, outputs_psf_np = sess.run([merged_summary_op, inputs, outputs, outputs_psf], feed_dict= {inputs_tf:input_np, outputs_tf:targets_np})
+                        
+                    # add all summaries to the writer
+                    # Merge all summaries into a single op            
+                    summary_writer.add_summary(summary, step)
+        
+               
     
-           
-
-                
-
-
-                
+                    
     
     
-    
-            if should(opt.progress_freq):
-                # global_step will have the correct step count if we resume from a checkpoint
-                print("Global Step: ", step_i, ", current step in data: ", step, ", epoch: ", epoch)
-                print("progress  step %d  "% step)
-                print("discrim_loss", discrim_loss)
-                print("gen_loss_GAN", gen_loss_GAN)
-                print("gen_loss_L1", gen_loss_L1)
-                print("gen_loss_sparse_L1", gen_loss_sparse_L1)
-    
-            if should(opt.save_freq):
-                print("saving model")
-                saver.save(sess, os.path.join(opt.output_dir, "C2Pmodel"), global_step=step)
-    
-           
+                    
+        
+        
+        
+                if should(opt.progress_freq):
+                    # global_step will have the correct step count if we resume from a checkpoint
+                    print("Current step in data: ", step, ", epoch: ", epoch_i)
+                    print("progress  step %d  "% step)
+                    print("discrim_loss", discrim_loss)
+                    print("gen_loss_GAN", gen_loss_GAN)
+                    print("gen_loss_L1", gen_loss_L1)
+                    print("gen_loss_sparse_L1", gen_loss_sparse_L1)
+        
+                if should(opt.save_freq):
+                    print("saving model")
+                    saver.save(sess, os.path.join(opt.output_dir, "C2Pmodel"), global_step=step)
+        
+               

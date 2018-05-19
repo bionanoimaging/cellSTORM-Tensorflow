@@ -110,6 +110,25 @@ def merge_examples(example1, example2):
         count=count,
         steps_per_epoch=steps_per_epoch,
     )
+    
+def limit_numsamples(examples, num_samples):
+    # merge two datasets
+        
+    # limits inputs
+    inputs = examples.inputs[0:num_samples,:,:,:]
+    # compbine spikes
+    spikes = examples.spikes[0:num_samples,:,:,:]
+    # compbine targets
+    targets = examples.targets[0:num_samples,:,:,:]
+    
+    return Examples(
+        paths='',
+        inputs=inputs,
+        targets=targets,
+        spikes=spikes,
+        count=num_samples,
+        steps_per_epoch=0,
+    )    
 
 # load database as h5 file from disk
 def load_examples_h5(filename, batch_size, is_normalize = False):
@@ -153,19 +172,23 @@ def load_examples_h5(filename, batch_size, is_normalize = False):
    
     
     count = patches.shape[0]
-    # randomize the order of the data
-    # assuming data in order: [N_smaples, Width, Height, Color-channels]
-    shuffle_order = np.arange(count)
-    shuffle_order = np.random.shuffle(shuffle_order)
     
-    patches = patches[shuffle_order, :, :, :]
-    heatmaps = heatmaps[shuffle_order, :, :, :]
-    spikes = spikes[shuffle_order, :, :, :]
-    
-    # weird that it adds an additional axis..
-    patches = np.squeeze(patches, axis=0)
-    heatmaps = np.squeeze(heatmaps, axis=0)
-    spikes = np.squeeze(spikes, axis=0)
+    # do shuffeling here doesn't make sense if you load mulitple datasets, therefore do shuffleing at training time!
+    if(0):
+        
+        # randomize the order of the data
+        # assuming data in order: [N_smaples, Width, Height, Color-channels]
+        shuffle_order = np.arange(count)
+        shuffle_order = np.random.shuffle(shuffle_order)
+        
+        patches = patches[shuffle_order, :, :, :]
+        heatmaps = heatmaps[shuffle_order, :, :, :]
+        spikes = spikes[shuffle_order, :, :, :]
+        
+        # weird that it adds an additional axis..
+        patches = np.squeeze(patches, axis=0)
+        heatmaps = np.squeeze(heatmaps, axis=0)
+        spikes = np.squeeze(spikes, axis=0)
     
     
     # convert Numpy to Tensorflow's tensor
@@ -253,21 +276,29 @@ class VideoReader:
         end_y = np.int32(self.ycenter+self.roisize/2)
         
         # crop ROI
-        frame_crop = frame_mean[start_x:end_x, start_y:end_y]
+        if(frame_mean.shape[0]<=self.roisize):
+            frame_crop = frame_mean
+        else:
+            frame_crop = frame_mean[start_x:end_x, start_y:end_y]
+
         #npad = ((self.padwidth, self.padwidth), (self.padwidth, self.padwidth), (0, 0))
         #frame_pad = np.pad(frame_crop, npad, 'reflect')
 
 
         # Pre-Process: Normalize and zero-center
         #frame_crop = frame_crop-np.min(frame_crop)
-        frame_crop_processed  = frame_crop/np.max(frame_crop)
+        try:
+            frame_crop_processed  = frame_crop/np.max(frame_crop)
+        except:
+            print('Frame has shape: ', frame_crop.shape)
+                
         if(1):
             frame_crop_processed = preprocess(frame_crop_processed)
         else:
             frame_crop_processed = (frame_crop_processed-np.mean(frame_crop_processed))/np.std(frame_crop_processed)
         
         # resize to scale_size
-        frame_crop_processed = scipy.misc.imresize(frame_crop_processed, size = (self.scale_size, self.scale_size), interp='bilinear', mode='F')
+        frame_crop_processed = scipy.misc.imresize(frame_crop_processed, size = (self.scale_size, self.scale_size), interp='bicubic', mode='F')
         frame_crop_processed = np.expand_dims(np.expand_dims(frame_crop_processed, axis = 0), axis = 3) # add zero-batch dimension and color-channel
         
         

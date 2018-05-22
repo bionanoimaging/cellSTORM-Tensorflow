@@ -18,11 +18,14 @@ import skvideo.io
 import scipy.misc
 import scipy.ndimage
 import numpy as np
+import cv2
 
 import h5py
 from sklearn.model_selection import train_test_split
 
-Examples = collections.namedtuple("Examples", "paths, inputs, targets, spikes, count, steps_per_epoch")
+Examples = collections.namedtuple("Examples", "paths, inputs, targets, spikes, count")
+
+
 
 def norm_min_max(inputs):
      # min/max projection      - assume 0 as the lowest intensity
@@ -70,7 +73,7 @@ def deprocess_tf(image):
         return image
 
         
-def save_as_tif(inputs_np, outputs_np, targets_np, experiment_name, network_name):   
+def save_as_tif(inputs_np, outputs_np, experiment_name, network_name):   
     """ Save images from results. """
     
      # create filedir according to the filename
@@ -80,19 +83,15 @@ def save_as_tif(inputs_np, outputs_np, targets_np, experiment_name, network_name
 
     out_path_inputs = os.path.join(myfile_dir, experiment_name+'_inputs.tif')
     out_path_outputs = os.path.join(myfile_dir, experiment_name+'_outputs.tif')
-    out_path_targets = os.path.join(myfile_dir, experiment_name+'_targets.tif')
-    
-    
+        
     tifffile.imsave(out_path_inputs, inputs_np, append=True, bigtiff=True)
     tifffile.imsave(out_path_outputs, outputs_np, append=True, bigtiff=True)
-    tifffile.imsave(out_path_targets, targets_np, append=True, bigtiff=True)
-
+    
 def merge_examples(example1, example2):
     # merge two datasets
     
     # define common variables
     count = example1.count
-    steps_per_epoch = example1.steps_per_epoch
     paths = ''
     
     # compbine inputs
@@ -107,8 +106,7 @@ def merge_examples(example1, example2):
         inputs=inputs,
         targets=targets,
         spikes=spikes,
-        count=count,
-        steps_per_epoch=steps_per_epoch,
+        count=count
     )
     
 def limit_numsamples(examples, num_samples):
@@ -127,7 +125,6 @@ def limit_numsamples(examples, num_samples):
         targets=targets,
         spikes=spikes,
         count=num_samples,
-        steps_per_epoch=0,
     )    
 
 # load database as h5 file from disk
@@ -199,7 +196,6 @@ def load_examples_h5(filename, batch_size, is_normalize = False):
         spikes_tensor = tf.transpose(tf.convert_to_tensor(spikes), perm=[1, 2, 3, 0])
     
     
-    steps_per_epoch = int(math.ceil(count / batch_size))
     
     print('Reading finished.')
     
@@ -210,14 +206,34 @@ def load_examples_h5(filename, batch_size, is_normalize = False):
         inputs=patches,
         targets=heatmaps,
         spikes=spikes,
-        count=count,
-        steps_per_epoch=steps_per_epoch,
+        count=count
     )
 
 
+def write_to_csv(data, filename):
+    import csv
+  
+    header = ['id', 'frame', 'x [nm]','y [nm]', 'sigma [nm]','intensity [photon]','offset [photon]','bkgstd [photon]','chi2','uncertainty [nm]']
+    
+    with open(filename, 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',', quoting=csv.QUOTE_NONE)
+         
+        data_id = np.int32(data[0])
+        data_frame = np.int32(data[1])
+        data_y = np.float32(data[2])
+        data_x = np.float32(data[3])
+        
+        writer.writerow(header)    
+        for i in range(data_id.shape[0]):
+            data_row = list((data_id[i], data_frame[i], data_x[i], data_y[i], 0, 0, 0))
+            #print(data_row)
+            writer.writerow(data_row)    
+    
+    csvfile.close()
 
 ## create class for frame-to-frame reading
 class VideoReader:
+    
     def __init__(self, dataroot, scale_size, roisize, xcenter, ycenter):
         self.dir_AB = dataroot
         
@@ -231,23 +247,57 @@ class VideoReader:
         self.ycenter =  ycenter
         self.scale_size = scale_size
         
-    def loadDummy(self):
+
      
         # assign dummy variables according to "load_examples"
-        inputs_batch = tf.zeros(shape = (1, self.scale_size, self.scale_size, 1))
-        targets_batch = inputs_batch 
-        count_batch =  self.__len__()
-        steps_per_epoch = 1
-        paths_batch = self.dir_AB 
+        self.firstframe = self.videogen.next()
+        self.count =  self.__len__()
         
-        return Examples(
-            paths=paths_batch,
-            inputs=inputs_batch,
-            targets=targets_batch,
-            spikes=targets_batch*0,
-            count=count_batch,
-            steps_per_epoch=steps_per_epoch,
-        )
+        self.refPt = []
+                        
+        
+        
+     
+    def click_and_crop(self, event, x, y, flags, param):
+        # grab references to the global variables
+         
+        # if the left mouse button was clicked, record the starting
+        # (x, y) coordinates and indicate that cropping is being
+        # performed
+        if event == cv2.EVENT_LBUTTONDOWN:
+            self.refPt = [(x, y)]
+            print(self.refPt)
+    	        
+    
+    def select_ROI(self):
+        # load the image, clone it, and setup the mouse callback function
+        image = cv2.cvtColor( self.firstframe*3, cv2.COLOR_RGB2GRAY )
+        image = cv2.equalizeHist(image)
+        clone = image.copy()
+        cv2.namedWindow("image")
+        cv2.setMouseCallback("image", self.click_and_crop)
+
+            
+        # keep looping until the 'q' key is pressed
+        while True:
+            
+            # display the image and wait for a keypress  
+            cv2.imshow("image", image)
+            key = cv2.waitKey(1) & 0xFF
+
+            # if there are two reference points, then crop the region of interest
+            # from teh image and display it
+            if len(self.refPt) == 1:
+                roi = clone[self.refPt[0][0]-self.roisize/2:self.refPt[0][0]+self.roisize/2, self.refPt[0][1]-self.roisize/2:self.refPt[0][1]+self.roisize/2]
+                cv2.imshow("ROI", roi)
+                # cv2.waitKey(0)
+                break
+
+        # close all open windows
+        cv2.destroyAllWindows()
+        
+        self.xcenter = self.refPt[0][1]
+        self.ycenter =  self.refPt[0][0]        
 
     def __getitem__(self, index):
         # read frame

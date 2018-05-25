@@ -9,12 +9,13 @@ import os
 import json
 import glob
 import random
-import collections
-import math
 import time
-import matplotlib.pyplot as plt
-import scipy.misc
-from tifffile import imsave
+#import matplotlib.pyplot as plt
+#import scipy.misc
+import tifffile as tif
+import glob
+import os
+
 # own modules
 import model as model
 import data as data
@@ -48,8 +49,8 @@ parser.add_argument("--l1_sparse_weight", type=float, default=100.0, help="weigh
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 
 parser.add_argument("--roi_size", type=int, default=256, help="size of the roi where the frames should be cropped out")
-parser.add_argument("--x_center", type=int, default=256, help="size of the roi where the frames should be cropped out")
-parser.add_argument("--y_center", type=int, default=256, help="size of the roi where the frames should be cropped out")
+parser.add_argument("--x_center", type=int, default=-1, help="size of the roi where the frames should be cropped out (type -1 if the entire frame should be selected!)")
+parser.add_argument("--y_center", type=int, default=-1, help="size of the roi where the frames should be cropped out (type -1 if the entire frame should be selected!)")
 parser.add_argument("--how_many_gpu", type=int, default=1, help="how many GPUS to use? [1..2")
   
 parser.add_argument("--is_tif", type=int, default=0, help="Want to save the TIF stacks on disk?")
@@ -60,11 +61,7 @@ parser.add_argument("--is_frc", type=int, default=0, help="Want to save two sepe
 
 
 # export options
-parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 opt = parser.parse_args()
-
-EPS = 1e-12
-
 
 
 # execute explicitly on GPU
@@ -111,58 +108,52 @@ if opt.mode == "test":
     # create Video-Reader 
     roisize = opt.roi_size
     VideoReader = data.VideoReader(opt.input_dir, opt.scale_size, roisize, -1, -1)
-    VideoReader.select_ROI() # select the ROI coordinates
-    
+    if opt.y_center == -1:
+        print("Please click in the center of the ROI you wish to process:")    
+        VideoReader.select_ROI() # select the ROI coordinates
+        
+        # reassign it for saving the data
+        opt.y_center = VideoReader.ycenter
+        opt.x_center = VideoReader.xcenter
+        
     if opt.max_steps is None:
         max_steps = VideoReader.__len__()
     else:
         max_steps = opt.max_steps
 
 else:
-    if(0):
-        examples = data.load_examples(opt.input_dir, opt.scale_size, opt.batch_size, opt.mode)
-    else:
-        # define the path to the datafiles
-        data_file_1 = './data/MOV_2018_05_09_14_15_21_ISO3200_texp_1_30_newsample.mp4_unet256_13.csv.h5'
-        data_file_2 = './data/2017-12-18_18.29.45.mp4_256_Tirf_v2_from_video_v2_fakeB_2k.csv.h5'
-        data_file_3 = './data/MOV_2018_04_20_16_31_44_Sample_Larve_ISO1200_texp1_60.csv.h5'
-        data_file_4 = './data/gt_1000k_density_2.csv.h5'
-        
-        
-        # load each set seperatly 
-        print('Load Dataset #1')
-        examples_1 = data.load_examples_h5(data_file_1, batch_size=opt.batch_size)
-        print('Load Dataset #2')
-        examples_2 = data.load_examples_h5(data_file_2, batch_size=opt.batch_size)
-        print('Load Dataset #3')
-        examples_3 = data.load_examples_h5(data_file_3, batch_size=opt.batch_size)
-        print('Load Dataset #4')
-        examples_4 = data.load_examples_h5(data_file_4, batch_size=opt.batch_size)
-
-        
+    # read the datafiles from the data-folder
+    path = './data/'
+    iterindex = 0
+    for filename in glob.glob(os.path.join(path, '*.h5')):
+        print('Load Dataset #: ', str(iterindex), ' / ', str(len(glob.glob(os.path.join(path, '*.h5')))), ' named: ', filename)
+        if (iterindex == 0):
+            examples = data.load_examples_h5(filename, batch_size=opt.batch_size)
+        else:
+            examples_tmp = data.load_examples_h5(filename, batch_size=opt.batch_size)
+            examples = data.merge_examples(examples, examples_tmp) # merges the datasets
+            
+        iterindex=iterindex+1    
+            
         # merge the examples, but only put the same number of samples from each dataset! 
         # => avoids predomination of one specific dataset
         # get num of samples take the min of all 
-        if(1):
+        if(0):
+            # limmit the number of samples to the same number 
             num_samples = np.int32(np.mean((examples_1.inputs.shape[0], examples_2.inputs.shape[0], examples_3.inputs.shape[0])))
             print('Number of samples for each Dataset: ', num_samples)
-            
-            # limmit the number of samples to the same number 
             examples_4 = data.limit_numsamples(examples_4, num_samples)
-        
-        print('Merge Datasets')
-        examples = data.merge_examples(examples_1, examples_2)
-        examples = data.merge_examples(examples, examples_3)
-        examples = data.merge_examples(examples, examples_4)        
+            
+    
+    
+   
+    # join all variables from all datasets together
+    all_inputs = examples.inputs
+    all_targets = examples.targets
+    all_spikes = examples.spikes
+    max_steps = all_inputs.shape[0]
 
-       
-        # join all variables from all datasets together
-        all_inputs = examples.inputs
-        all_targets = examples.targets
-        all_spikes = examples.spikes
-        max_steps = all_inputs.shape[0]
-
-        
+    
    
 print('Data-loading complete! # of samples: ', max_steps)     
     
@@ -173,20 +164,31 @@ inputs_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, im_xdim, im_ydim, 
 outputs_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, im_xdim, im_ydim, 1))
 spikes_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, im_xdim, im_ydim, 1))
 
+# cast the control-variables from the user input
+gan_weight_np = opt.gan_weight
+l1_weight_np = opt.l1_weight
+l1_sparse_weight_np = opt.l1_sparse_weight
+lr_np = opt.lr
+beta_np = opt.beta1
 
-
+# cast some control-variables for the loss-weights
+gan_tf = tf.placeholder(tf.float32, shape=[])
+l1_weight_tf = tf.placeholder(tf.float32, shape=[])
+l1_sparse_weight_tf = tf.placeholder(tf.float32, shape=[])
+lr_tf = tf.placeholder(tf.float32, shape=[])
+beta1_tf = tf.Variable(beta_np)
 
 # inputs and targets are [batch_size, height, width, channels]
-C2Pmodel = model.create_model(inputs_tf, outputs_tf, opt.ndf, opt.ngf, EPS, opt.gan_weight, opt.l1_weight, opt.l1_sparse_weight, opt.lr, opt.beta1)
-#    C2Pmodel = model.create_model(examples.spikes, examples.targets, opt.ndf, opt.ngf, EPS, opt.gan_weight, opt.l1_weight, opt.l1_sparse_weight, opt.lr, opt.beta1)
+C2Pmodel = model.create_model(inputs_tf, outputs_tf, opt.ndf, opt.ngf, gan_tf, l1_weight_tf, l1_sparse_weight_tf, lr_tf, beta1_tf)
 
- # reverse any processing on images so they can be written to disk or displayed to user
+# reverse any processing on images so they can be written to disk or displayed to user
 inputs = data.deprocess_tf(C2Pmodel.inputs)
 targets = data.deprocess_tf(C2Pmodel.targets)
 outputs = data.deprocess_tf(C2Pmodel.outputs)
 outputs_psf = data.deprocess_tf(C2Pmodel.outputs_psf)
 
 def convert(image):
+    image = data.norm_min_max_tf(image)
     return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
 
 with tf.name_scope("convert_inputs"):
@@ -224,6 +226,7 @@ with tf.name_scope("predict_real_summary"):
 with tf.name_scope("predict_fake_summary"):
     tf.summary.image("predict_fake", tf.image.convert_image_dtype(C2Pmodel.predict_fake, dtype=tf.uint8))
 
+tf.summary.scalar("GAN_weight", gan_tf)
 tf.summary.scalar("discriminator_loss", C2Pmodel.discrim_loss)
 tf.summary.scalar("generator_loss_GAN", C2Pmodel.gen_loss_GAN)
 tf.summary.scalar("generator_loss_L1", C2Pmodel.gen_loss_L1)
@@ -273,22 +276,31 @@ if(1):
     
     if opt.mode == "test":
         # testing
-        # at most, process the test data once
+
         start = time.time()
         experiment_name = opt.input_dir.split("/")[-1]
         network_name =  opt.checkpoint
         
+         # create filedir according to the filename
+        myfile_dir = ('./myresults/' + experiment_name + '_' + network_name)
+        if not os.path.exists(myfile_dir):
+            os.makedirs(myfile_dir)
+            
+        # save all parameters from the experiment
+        with open(os.path.join(myfile_dir, "test_options.json"), "w") as f:
+            f.write(json.dumps(vars(opt), sort_keys=True, indent=4))
 
         # index for the current emitter id
         last_index = 0
-        all_list = np.zeros((4,0))
+        all_list = np.zeros((5,0))
 
         # if write to csv file - open the file
         
         # initialize the variable to store the sum of all reconstructed frames
         out_sum = np.zeros((opt.scale_size, opt.scale_size))
         if opt.is_frc:
-            out_sum_2 = out_sum
+            out_sum_frc1 = np.zeros((opt.scale_size, opt.scale_size))
+            out_sum_frc2 = np.zeros((opt.scale_size, opt.scale_size))
             
         for step_i in range(0, max_steps, opt.batch_size):
             
@@ -296,8 +308,13 @@ if(1):
             epoch = np.floor_divide(step_i, VideoReader.count)
 
             # read each frame from the file and pass it to the NN
-            inputframe_raw, input_frame_processed = VideoReader.__getitem__(step)
-            inputs_np, outputs_np = sess.run([inputs, outputs], feed_dict= {inputs_tf : input_frame_processed})
+            try:
+                inputframe_raw, input_frame_processed = VideoReader.__getitem__(step)
+            except(StopIteration):
+                print('No frame to read!! - process with zero frames instead!')
+                inputframe_raw, input_frame_processed = inputframe_raw*0, input_frame_processed*0
+                    
+            outputs_np = sess.run([outputs], feed_dict= {inputs_tf : input_frame_processed})
         
             # hacky workaround to keep model as is
             outputs_np = np.squeeze(np.array(outputs_np))
@@ -313,15 +330,12 @@ if(1):
                 
                  
             # sum each frame to get the resulting high-resolution image
+            out_sum = out_sum + outputs_np # sum all values 
             if opt.is_frc: # if frc is true, there will be two summ-files to compute the FRC
                 if(np.mod(step_i, 2)): # odd frames
-                    out_sum_2 = out_sum_2 + outputs_np 
+                    out_sum_frc2 = out_sum_frc2 + outputs_np 
                 else:
-                    out_sum = out_sum + outputs_np # even frames
-            else:
-                out_sum = out_sum + outputs_np # sum all values 
-                    
-        
+                    out_sum_frc1 = out_sum_frc1 + outputs_np # even frames
 
             
             if opt.is_tif:
@@ -330,7 +344,8 @@ if(1):
                 
             if opt.is_csv:
                 # get a list with all emitters greater than a certain per-frame intensity threshold value
-                loc_list = np.asarray(np.column_stack(np.where(outputs_np > np.max(outputs_np)*.5)))
+                loc_list = np.int32(np.asarray(np.column_stack(np.where(outputs_np > np.mean(outputs_np)*.85))))
+                int_list = outputs_np[loc_list[:,0],loc_list[:,1]]
                 # cast it to 80/5nm pixelsize - 5 - because of the upsampling of factor 5
                 upsampling = opt.scale_size/opt.roi_size
                 loc_list = loc_list*(80/upsampling)
@@ -341,26 +356,24 @@ if(1):
                 last_index = np.max(id_list) 
                 
                 # concat the different values (like the ThunderSTORM tables) 
-                # id,"frame","x [nm]","y [nm]","sigma [nm]","intensity [photon]","offset [photon]","bkgstd [photon]","chi2","uncertainty [nm]"
-                all_list = np.hstack((all_list, np.vstack((id_list, frame_list, loc_list[:,0], loc_list[:,1]))))
+                all_list = np.hstack((all_list, np.vstack((id_list, frame_list, loc_list[:,0], loc_list[:,1], int_list))))
     
 
            
             print("evaluated image " + str(step))
             
                 
-        # create filedir according to the filename
-        myfile_dir = ('./myresults/' + experiment_name + '_' + network_name)
-        if not os.path.exists(myfile_dir):
-            os.makedirs(myfile_dir)
+       
     
         out_path_inputs = os.path.join(myfile_dir, experiment_name+'output_sum.tif')    
         # save 32bit float (== single) tiff
-        imsave(out_path_inputs, np.float32(out_sum)) # also supports 64bit but ImageJ does not
+        tif.imsave(out_path_inputs, np.float32(out_sum/np.max(out_sum)*100)) # also supports 64bit but ImageJ does not
         
         if opt.is_frc == 1: # if frc is true, there will be two sum-files to compute the FRC
-            out_path_inputs_2 = os.path.join(myfile_dir, experiment_name+'output_sum_2.tif')    
-            imsave(out_path_inputs_2, np.float32(out_sum_2)) # also supports 64bit but ImageJ does not    
+            out_path_inputs_1 = os.path.join(myfile_dir, experiment_name+'output_sum_frc1.tif')    
+            tif.imsave(out_path_inputs_1, np.float32(out_sum_frc2*100)) # also supports 64bit but ImageJ does not    
+            out_path_inputs_2 = os.path.join(myfile_dir, experiment_name+'output_sum_frc2.tif')    
+            tif.imsave(out_path_inputs_2, np.float32(out_sum_frc2*100)) # also supports 64bit but ImageJ does not    
 
         
         
@@ -373,35 +386,48 @@ if(1):
     else:
         # training
         start = time.time()
-               
+        
     
+        # save the GAN-weight and change it over time - so that the generator learns for the first 10000 steps allone, than only every 5th step
+        current_gan_weight_np = gan_weight_np
         for epoch_i in range(opt.max_epochs):
-            # shuffle along first dimeions = numsaples
+            # shuffle along first dimeions = numsaples every epoch
             from sklearn.utils import shuffle
             all_inputs, all_targets, all_spikes = shuffle(all_inputs, all_targets, all_spikes, random_state=0)
-    
+            
 
             for step in range(max_steps-opt.batch_size-1):
-                
-
-                
+                global_step = step*(epoch_i+1)
+                # when do we need to process something?               
                 def should(freq):
                     return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
                 
-                
+                # only train the generator for the first 1000 steps 
+                if global_step < 1000 and np.mod(global_step, 5)==0:
+                    current_gan_weight_np = 0
+                else:
+                    current_gan_weight_np = gan_weight_np
+                    
+                    
                 # evaluate result for one frame at a time
                 # get the slices from the HDF5 data-stack:
                 try:
         
-
+                    # pick the samples from numpy arrays is costly - but ok for now
                     input_np = all_inputs[step:step+opt.batch_size,:,:,:]
                     targets_np = all_targets[step:step+opt.batch_size,:,:,:]
                     spikes_np = all_spikes[step:step+opt.batch_size,:,:,:]
                     
                     # reduce the cost-function
-                    sess.run(C2Pmodel.train, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np})       
-            
-            
+                    sess.run(C2Pmodel.train, feed_dict= {inputs_tf:input_np, 
+                                                         outputs_tf:spikes_np,
+                                                         gan_tf:current_gan_weight_np, 
+                                                        l1_weight_tf:l1_weight_np, 
+                                                        l1_sparse_weight_tf:l1_sparse_weight_np,
+                                                        lr_tf:lr_np})       
+
+        
+
                     if should(opt.progress_freq):
                         discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1 = sess.run([C2Pmodel.discrim_loss, C2Pmodel.gen_loss_GAN, C2Pmodel.gen_loss_L1, C2Pmodel.gen_loss_sparse_L1])
         
@@ -410,17 +436,20 @@ if(1):
                         # Write logs at every iteration
                         
                         print("recording summary")
-                        summary, nputs_np, outputs_np, outputs_psf_np = sess.run([merged_summary_op, inputs, outputs, outputs_psf], feed_dict= {inputs_tf:input_np, outputs_tf:targets_np})
+                        summary  = sess.run(merged_summary_op, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np, 
+                                                        gan_tf:current_gan_weight_np, 
+                                                        l1_weight_tf:l1_weight_np, 
+                                                        l1_sparse_weight_tf:l1_sparse_weight_np,
+                                                        lr_tf:lr_np})
                             
                         # add all summaries to the writer
                         # Merge all summaries into a single op            
-                        summary_writer.add_summary(summary, step)
+                        summary_writer.add_summary(summary, global_step )
             
           
                     if should(opt.progress_freq):
                         # global_step will have the correct step count if we resume from a checkpoint
-                        print("Current step in data: ", step, ", epoch: ", epoch_i)
-                        print("progress  step %d  "% step)
+                        print("Current step in data: ", step, ", epoch: ", epoch_i, " global step: ", global_step)
                         print("discrim_loss", discrim_loss)
                         print("gen_loss_GAN", gen_loss_GAN)
                         print("gen_loss_L1", gen_loss_L1)
@@ -432,4 +461,6 @@ if(1):
                         
                 except IndexError:
                     print('something went wrong with loading the data, probably wrong index for the array')
+                    
+                
                    

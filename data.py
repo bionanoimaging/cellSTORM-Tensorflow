@@ -25,18 +25,25 @@ from sklearn.model_selection import train_test_split
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, spikes, count")
 
-
+# want to normalize the data by its mean and std? not a good adia probalby..
+is_normalize = False
 
 def norm_min_max(inputs):
-     # min/max projection      - assume 0 as the lowest intensity
-    min_inputs = np.min(inputs, axis=(1,2,3))
-    proj01 = inputs-min_inputs[:, np.newaxis, np.newaxis, np.newaxis]
-    max_inputs = np.max(proj01, axis=(1,2,3))
-    proj01 = proj01/max_inputs[:, np.newaxis, np.newaxis, np.newaxis]
+    if len(inputs.shape)==3:
+         outputs = inputs - np.min(inputs)
+         outputs = outputs/np.max(outputs)
+    else:             
+         min_inputs = np.min(inputs, axis=(1,2,3))
+         outputs = inputs-min_inputs[:, np.newaxis, np.newaxis, np.newaxis]
+         max_inputs = np.max(outputs, axis=(1,2,3))
+         outputs = outputs/max_inputs[:, np.newaxis, np.newaxis, np.newaxis]
     
-    return proj01
+    return outputs
     
-    
+def norm_min_max_tf(image):
+    image = image-tf.reduce_min(image)
+    image = image/tf.reduce_max(image)
+    return image
 
 def normalize_std_mean(inputs):
    
@@ -65,7 +72,7 @@ def deprocess(image):
 def deprocess_tf(image):
     with tf.name_scope("deprocess"):
         # [-1, 1] => [0, 1]
-        if(0):
+        if(is_normalize):
             image = image-tf.reduce_min(image)
             image = image/tf.reduce_max(image)
         else:
@@ -84,8 +91,8 @@ def save_as_tif(inputs_np, outputs_np, experiment_name, network_name):
     out_path_inputs = os.path.join(myfile_dir, experiment_name+'_inputs.tif')
     out_path_outputs = os.path.join(myfile_dir, experiment_name+'_outputs.tif')
         
-    tifffile.imsave(out_path_inputs, inputs_np, append=True, bigtiff=True)
-    tifffile.imsave(out_path_outputs, outputs_np, append=True, bigtiff=True)
+    tifffile.imsave(out_path_inputs, np.float32(inputs_np), append=True, bigtiff=True) #compression='lzw', 
+    tifffile.imsave(out_path_outputs, np.float32(outputs_np*100),  append=True, bigtiff=True) # int saves space
     
 def merge_examples(example1, example2):
     # merge two datasets
@@ -128,7 +135,7 @@ def limit_numsamples(examples, num_samples):
     )    
 
 # load database as h5 file from disk
-def load_examples_h5(filename, batch_size, is_normalize = False):
+def load_examples_h5(filename, batch_size, is_normalize = is_normalize):
     #filename = './cellstorm_data.h5'
     #BATCH_SIZE = 4
     # Load training data and divide it to training and validation sets
@@ -146,10 +153,14 @@ def load_examples_h5(filename, batch_size, is_normalize = False):
     spikes = np.expand_dims(spikes, axis = 3)
  
     # bring data to 0..1
-    patches = norm_min_max(patches)
-    heatmaps = norm_min_max(heatmaps)
-    spikes = norm_min_max(spikes)
-    
+    if(1):
+        patches = norm_min_max(patches)
+        heatmaps = norm_min_max(heatmaps)
+        spikes = norm_min_max(spikes)
+    else:
+        patches = (patches)
+        heatmaps = (heatmaps)
+        spikes = (spikes)
     
     if(is_normalize):
          #===================== Training set normalization ==========================
@@ -187,16 +198,7 @@ def load_examples_h5(filename, batch_size, is_normalize = False):
         heatmaps = np.squeeze(heatmaps, axis=0)
         spikes = np.squeeze(spikes, axis=0)
     
-    
-    # convert Numpy to Tensorflow's tensor
-    if(0):
-        # this is not possible! toooo much memory! 
-        patches_tensor = tf.transpose(tf.convert_to_tensor(patches), perm=[1, 2, 3, 0])
-        heatmaps_tensor = tf.transpose(tf.convert_to_tensor(heatmaps), perm=[1, 2, 3, 0])
-        spikes_tensor = tf.transpose(tf.convert_to_tensor(spikes), perm=[1, 2, 3, 0])
-    
-    
-    
+
     print('Reading finished.')
     
     print('Number of Training Examples: %d' % count)
@@ -222,10 +224,11 @@ def write_to_csv(data, filename):
         data_frame = np.int32(data[1])
         data_y = np.float32(data[2])
         data_x = np.float32(data[3])
+        data_intensity = np.float32(data[4])
         
         writer.writerow(header)    
         for i in range(data_id.shape[0]):
-            data_row = list((data_id[i], data_frame[i], data_x[i], data_y[i], 0, 0, 0))
+            data_row = list((data_id[i], data_frame[i], data_x[i], data_y[i], 0, data_intensity[i], 0))
             #print(data_row)
             writer.writerow(data_row)    
     
@@ -271,9 +274,9 @@ class VideoReader:
     
     def select_ROI(self):
         # load the image, clone it, and setup the mouse callback function
-        image = cv2.cvtColor( self.firstframe*3, cv2.COLOR_RGB2GRAY )
+        image = cv2.cvtColor( self.firstframe*2, cv2.COLOR_RGB2GRAY )
         image = cv2.equalizeHist(image)
-        clone = image.copy()
+        
         cv2.namedWindow("image")
         cv2.setMouseCallback("image", self.click_and_crop)
 
@@ -288,9 +291,7 @@ class VideoReader:
             # if there are two reference points, then crop the region of interest
             # from teh image and display it
             if len(self.refPt) == 1:
-                roi = clone[self.refPt[0][0]-self.roisize/2:self.refPt[0][0]+self.roisize/2, self.refPt[0][1]-self.roisize/2:self.refPt[0][1]+self.roisize/2]
-                cv2.imshow("ROI", roi)
-                # cv2.waitKey(0)
+                #roi = clone[self.refPt[0][0]-self.roisize/2:self.refPt[0][0]+self.roisize/2, self.refPt[0][1]-self.roisize/2:self.refPt[0][1]+self.roisize/2]
                 break
 
         # close all open windows
@@ -331,27 +332,15 @@ class VideoReader:
         else:
             frame_crop = frame_mean[start_x:end_x, start_y:end_y]
 
-        #npad = ((self.padwidth, self.padwidth), (self.padwidth, self.padwidth), (0, 0))
-        #frame_pad = np.pad(frame_crop, npad, 'reflect')
-
-
-        # Pre-Process: Normalize and zero-center
-        #frame_crop = frame_crop-np.min(frame_crop)
-        try:
-            frame_crop_processed  = frame_crop/np.max(frame_crop)
-        except:
-            print('Frame has shape: ', frame_crop.shape)
-                
-        if(1):
-            frame_crop_processed = preprocess(frame_crop_processed)
-        else:
-            frame_crop_processed = (frame_crop_processed-np.mean(frame_crop_processed))/np.std(frame_crop_processed)
         
         # resize to scale_size
-        frame_crop_processed = scipy.misc.imresize(frame_crop_processed, size = (self.scale_size, self.scale_size), interp='bicubic', mode='F')
-        frame_crop_processed = np.expand_dims(np.expand_dims(frame_crop_processed, axis = 0), axis = 3) # add zero-batch dimension and color-channel
-        
-        
+        frame_crop = scipy.misc.imresize(frame_crop, size = (self.scale_size, self.scale_size), interp='bilinear', mode='F')
+        frame_crop = np.expand_dims(np.expand_dims(frame_crop, axis = 0), axis = 3) # add zero-batch dimension and color-channel
+
+        # Pre-Process: Normalize and zero-center
+        frame_crop_processed = norm_min_max(frame_crop)
+        frame_crop_processed = preprocess(frame_crop_processed)
+
         return frame_crop, frame_crop_processed
     
     

@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 EPS = 1e-12
 
 
-Model = collections.namedtuple("Model", "outputs, outputs_psf, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1, gen_grads_and_vars, targets, inputs, train")
+Model = collections.namedtuple("Model", "outputs, outputs_psf, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1, gen_loss_TV, gen_grads_and_vars, targets, inputs, train")
 
 psf_size = 31
 psf_sigma = 4 # corresponds to 80nm effective pixelsize with 5x magnification of the video => FWHM ~ 15 pixel
@@ -51,6 +51,17 @@ psf_heatmap = matlab_style_gauss2D(shape = (psf_size,psf_size),sigma=psf_sigma)
 gfilter = tf.reshape(psf_heatmap, [psf_size, psf_size, 1, 1])
 #plt.imshow(np.squeeze(psf_heatmap)), plt.show()
 
+# total variation regularizer
+def total_variation_regularization(x, beta=1):
+    assert isinstance(x, tf.Tensor)
+    wh = tf.constant([[[[ 1], [ 1], [ 1]]], [[[-1], [-1], [-1]]]], tf.float32)
+    ww = tf.constant([[[[ 1], [ 1], [ 1]], [[-1], [-1], [-1]]]], tf.float32)
+    tvh = lambda x: tf.layers.conv2d(x, wh, padding='SAME')
+    tvw = lambda x: tf.layers.conv2d(x, ww, padding='SAME')
+    dh = tvh(x)
+    dw = tvw(x)
+    tv = (tf.add(tf.reduce_sum(dh**2, [1, 2, 3]), tf.reduce_sum(dw**2, [1, 2, 3]))) ** (beta / 2.)
+    return tv
 
 
 def lrelu(x, a):
@@ -275,7 +286,7 @@ def create_discriminator(discrim_inputs, discrim_targets, NDF):
 
 
 
-def create_model(inputs, targets_raw, NDF, NGF, GAN_weight, L1_weight, L1_sparse_weight, Adam_LR, Adam_beta1):
+def create_model(inputs, targets_raw, NDF, NGF, GAN_weight, L1_weight, L1_sparse_weight, TV_weight, Adam_LR, Adam_beta1):
     
     with tf.variable_scope("generator"):
         out_channels = int(targets_raw.get_shape()[-1])
@@ -328,7 +339,8 @@ def create_model(inputs, targets_raw, NDF, NGF, GAN_weight, L1_weight, L1_sparse
         #gen_loss_GAN = tf.reduce_mean(predict_fake)
         gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs_psf))
         gen_loss_sparse_L1 = tf.reduce_mean(tf.abs(outputs))
-        gen_loss = gen_loss_GAN * GAN_weight + gen_loss_L1 * L1_weight + gen_loss_sparse_L1 * L1_sparse_weight
+        gen_loss_TV = total_variation_regularization(outputs) #tf.reduce_mean(tf.image.total_variation(outputs))
+        gen_loss = gen_loss_GAN * GAN_weight + gen_loss_L1 * L1_weight + gen_loss_sparse_L1 * L1_sparse_weight +  gen_loss_TV * TV_weight
 
     with tf.name_scope("discriminator_train"):
         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
@@ -344,7 +356,7 @@ def create_model(inputs, targets_raw, NDF, NGF, GAN_weight, L1_weight, L1_sparse
             gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1])
+    update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1, gen_loss_TV])
 
     return Model(
         predict_real=predict_real,
@@ -354,6 +366,7 @@ def create_model(inputs, targets_raw, NDF, NGF, GAN_weight, L1_weight, L1_sparse
         gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
         gen_loss_sparse_L1=ema.average(gen_loss_sparse_L1),
+        gen_loss_TV = ema.average(gen_loss_TV),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
         outputs_psf=outputs_psf,

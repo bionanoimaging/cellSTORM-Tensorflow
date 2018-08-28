@@ -80,19 +80,15 @@ def deprocess_tf(image):
         return image
 
         
-def save_as_tif(inputs_np, outputs_np, experiment_name, network_name):   
+def save_as_tif(input_frame, experiment_name, network_name, filename):   
     """ Save images from results. """
     
      # create filedir according to the filename
     myfile_dir = ('./myresults/' + experiment_name + '_' + network_name)
-    if not os.path.exists(myfile_dir):
-        os.makedirs(myfile_dir)
 
-    out_path_inputs = os.path.join(myfile_dir, experiment_name+'_inputs.tif')
-    out_path_outputs = os.path.join(myfile_dir, experiment_name+'_outputs.tif')
-        
-    tifffile.imsave(out_path_inputs, np.float32(inputs_np), append=True, bigtiff=True) #compression='lzw', 
-    tifffile.imsave(out_path_outputs, np.float32(outputs_np*100),  append=True, bigtiff=True) # int saves space
+    out_path = os.path.join(myfile_dir, experiment_name+'_'+ filename + '.tif')
+    tifffile.imsave(out_path, np.float32(input_frame), append=True, bigtiff=True) #compression='lzw', 
+    
     
 def merge_examples(example1, example2):
     # merge two datasets
@@ -334,11 +330,11 @@ class VideoReader:
 
         
         # resize to scale_size
-        frame_crop = scipy.misc.imresize(frame_crop, size = (self.scale_size, self.scale_size), interp='bilinear', mode='F')
-        frame_crop = np.expand_dims(np.expand_dims(frame_crop, axis = 0), axis = 3) # add zero-batch dimension and color-channel
+        frame_crop_processed = scipy.misc.imresize(frame_crop, size = (self.scale_size, self.scale_size), interp='bilinear', mode='F')
+        frame_crop_processed = np.expand_dims(np.expand_dims(frame_crop_processed, axis = 0), axis = 3) # add zero-batch dimension and color-channel
 
         # Pre-Process: Normalize and zero-center
-        frame_crop_processed = norm_min_max(frame_crop)
+        frame_crop_processed = norm_min_max(frame_crop_processed)
         frame_crop_processed = preprocess(frame_crop_processed)
 
         return frame_crop, frame_crop_processed

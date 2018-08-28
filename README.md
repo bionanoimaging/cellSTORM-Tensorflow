@@ -1,262 +1,117 @@
-# pix2pix-tensorflow
+![cellSTORM APP](./images/ShotOnHuawei_4.png)
 
-Based on [pix2pix](https://phillipi.github.io/pix2pix/) by Isola et al.
+cellSTORM TENSORFLOW Files
+==============================
 
-[Article about this implemention](https://affinelayer.com/pix2pix/)
+Based on paper by Benedict Diederich, Patrick Then, Alexander Jügler, Ronny Förster, Rainer Heintzmann
 
-[Interactive Demo](https://affinelayer.com/pixsrv/)
+[Article about the implementation of cellSTORM](https://arxiv.org/abs/1804.06244)
+; Based on [pix2pix](https://phillipi.github.io/pix2pix/) by Isola et al.
 
-Tensorflow implementation of pix2pix.  Learns a mapping from input images to output images, like these examples from the original paper:
+## Introduction
+This is the repo for the Tensorflow implementation of cellSTORM based on the conditional generative adversarial network (cGAN) implmented by pix2pix-tensoflow. In this case it learns a mapping from input images (i.e. degraded, noisy, compressed video-sequences of dSTORM blinking events) to output images (i.e. localization maps/center of possible blinking fluorophore)
 
-<img src="docs/examples.jpg" width="900px"/>
+The repository has also a scipt to export a given Graph trained on GPU to a cellphone. The cellSTORM localizer APP can be found in another repo.
 
-This port is based directly on the torch implementation, and not on an existing Tensorflow implementation.  It is meant to be a faithful implementation of the original work and so does not add anything.  The processing speed on a GPU with cuDNN was equivalent to the Torch implementation in testing.
 
-## Setup
+## Setup (pix2pix related)
 
 ### Prerequisites
-- Tensorflow 1.4.1
+
+Prerequisites: This software was tested on a Ubuntu 16.04 LTS 64-bit operating system equipped with a NVidia TITAN X 12 GB, with the following packages:
+
+1. Fiji with ThunderSTORM plugin 1.3 installed
+2. MatlabR2016b with `dip_image` toolbox ([Details](https://github.com/bionanoimaging/cellSTORM-MATLAB))
+3. Anaconda distribution 5.1 for Ubuntu (64-bit) with Tensorflow 1.8.0
 
 ### Recommended
 - Linux with Tensorflow GPU edition + cuDNN
 
 ### Getting Started
+Most of the steps are equivalent to Deep-Storm by Nehme et al. 2018. Please also look into their project. 
 
-```sh
-# clone this repo
-git clone https://github.com/affinelayer/pix2pix-tensorflow.git
-cd pix2pix-tensorflow
-# download the CMP Facades dataset (generated from http://cmp.felk.cvut.cz/~tylecr1/facade/)
-python tools/download-dataset.py facades
-# train the model (this may take 1-8 hours depending on GPU, on CPU you will be waiting for a bit)
-python pix2pix.py \
-  --mode train \
-  --output_dir facades_train \
-  --max_epochs 200 \
-  --input_dir facades/train \
-  --which_direction BtoA
-# test the model
-python pix2pix.py \
-  --mode test \
-  --output_dir facades_test \
-  --input_dir facades/val \
-  --checkpoint facades_train
-```
-
-The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets.
-
-If you have Docker installed, you can use the provided Docker image to run pix2pix without installing the correct version of Tensorflow:
-
-```sh
-# train the model
-python tools/dockrun.py python pix2pix.py \
-      --mode train \
-      --output_dir facades_train \
-      --max_epochs 200 \
-      --input_dir facades/train \
-      --which_direction BtoA
-# test the model
-python tools/dockrun.py python pix2pix.py \
-      --mode test \
-      --output_dir facades_test \
-      --input_dir facades/val \
-      --checkpoint facades_train
-```
-
-## Datasets and Trained Models
-
-The data format used by this program is the same as the original pix2pix format, which consists of images of input and desired output side by side like:
-
-<img src="docs/ab.png" width="256px"/>
-
-For example:
-
-<img src="docs/418.png" width="256px"/>
-
-Some datasets have been made available by the authors of the pix2pix paper.  To download those datasets, use the included script `tools/download-dataset.py`.  There are also links to pre-trained models alongside each dataset, note that these pre-trained models require the current version of pix2pix.py:
-
-| dataset | example |
-| --- | --- |
-| `python tools/download-dataset.py facades` <br> 400 images from [CMP Facades dataset](http://cmp.felk.cvut.cz/~tylecr1/facade/). (31MB) <br> Pre-trained: [BtoA](https://mega.nz/#!H0AmER7Y!pBHcH4M11eiHBmJEWvGr-E_jxK4jluKBUlbfyLSKgpY)  | <img src="docs/facades.jpg" width="256px"/> |
-| `python tools/download-dataset.py cityscapes` <br> 2975 images from the [Cityscapes training set](https://www.cityscapes-dataset.com/). (113M) <br> Pre-trained: [AtoB](https://mega.nz/#!K1hXlbJA!rrZuEnL3nqOcRhjb-AnSkK0Ggf9NibhDymLOkhzwuQk) [BtoA](https://mega.nz/#!y1YxxB5D!1817IXQFcydjDdhk_ILbCourhA6WSYRttKLrGE97q7k) | <img src="docs/cityscapes.jpg" width="256px"/> |
-| `python tools/download-dataset.py maps` <br> 1096 training images scraped from Google Maps (246M) <br> Pre-trained: [AtoB](https://mega.nz/#!7oxklCzZ!8fRZoF3jMRS_rylCfw2RNBeewp4DFPVE_tSCjCKr-TI) [BtoA](https://mega.nz/#!S4AGzQJD!UH7B5SV7DJSTqKvtbFKqFkjdAh60kpdhTk9WerI-Q1I) | <img src="docs/maps.jpg" width="256px"/> |
-| `python tools/download-dataset.py edges2shoes` <br> 50k training images from [UT Zappos50K dataset](http://vision.cs.utexas.edu/projects/finegrained/utzap50k/). Edges are computed by [HED](https://github.com/s9xie/hed) edge detector + post-processing. (2.2GB) <br> Pre-trained: [AtoB](https://mega.nz/#!u9pnmC4Q!2uHCZvHsCkHBJhHZ7xo5wI-mfekTwOK8hFPy0uBOrb4) | <img src="docs/edges2shoes.jpg" width="256px"/>  |
-| `python tools/download-dataset.py edges2handbags` <br> 137K Amazon Handbag images from [iGAN project](https://github.com/junyanz/iGAN). Edges are computed by [HED](https://github.com/s9xie/hed) edge detector + post-processing. (8.6GB) <br> Pre-trained: [AtoB](https://mega.nz/#!G1xlDCIS!sFDN3ZXKLUWU1TX6Kqt7UG4Yp-eLcinmf6HVRuSHjrM) | <img src="docs/edges2handbags.jpg" width="256px"/> |
-
-The `facades` dataset is the smallest and easiest to get started with.
-
-### Creating your own dataset
-
-#### Example: creating images with blank centers for [inpainting](https://people.eecs.berkeley.edu/~pathak/context_encoder/)
-
-<img src="docs/combine.png" width="900px"/>
-
-```sh
-# Resize source images
-python tools/process.py \
-  --input_dir photos/original \
-  --operation resize \
-  --output_dir photos/resized
-# Create images with blank centers
-python tools/process.py \
-  --input_dir photos/resized \
-  --operation blank \
-  --output_dir photos/blank
-# Combine resized images with blanked images
-python tools/process.py \
-  --input_dir photos/resized \
-  --b_dir photos/blank \
-  --operation combine \
-  --output_dir photos/combined
-# Split into train/val set
-python tools/split.py \
-  --dir photos/combined
-```
-
-The folder `photos/combined` will now have `train` and `val` subfolders that you can use for training and testing.
-
-#### Creating image pairs from existing images
-
-If you have two directories `a` and `b`, with corresponding images (same name, same dimensions, different data) you can combine them with `process.py`:
-
-```sh
-python tools/process.py \
-  --input_dir a \
-  --b_dir b \
-  --operation combine \
-  --output_dir c
-```
-
-This puts the images in a side-by-side combined image that `pix2pix.py` expects.
-
-#### Colorization
-
-For colorization, your images should ideally all be the same aspect ratio.  You can resize and crop them with the resize command:
-```sh
-python tools/process.py \
-  --input_dir photos/original \
-  --operation resize \
-  --output_dir photos/resized
-```
-
-No other processing is required, the colorization mode (see Training section below) uses single images instead of image pairs.
+A detailed list with all dependecies will follow soon! 
+See also the `environmet.yml` file
 
 ## Training
+Before training, you should download the datapair files and place them into the ./data folder from our [GoogleDrive](https://drive.google.com/drive/folders/1dc1n7xVqvl5wu0Mui3TbSOfZdSqgrVZJ?usp=sharing). The code automatically looks for all `.h5`-files. 
+For normal training you can just use the code below:
 
-### Image Pairs
+```
+# First change into the directory where you downloaded this Repo
+cd ./pix2pix-tensorflow
 
-For normal training with image pairs, you need to specify which directory contains the training images, and which direction to train on.  The direction options are `AtoB` or `BtoA`
-```sh
+# Then start the training process
 python pix2pix.py \
-  --mode train \
-  --output_dir facades_train \
-  --max_epochs 200 \
-  --input_dir facades/train \
-  --which_direction BtoA
+--mode train \
+--batch_size 4 \
+--display_freq 50 \
+--ndf 32 --ngf 32 \
+--beta1 0.5 --lr 0.0001 \
+--output_dir test_tvreg \
+--scale_size 256 \
+--max_epochs 100 \
+--l1_weight 100 \
+--l1_sparse_weight 100 \
+--save_freq 500 \
+--gan_weight 1 \
+--tv_weight 100
+
 ```
 
-### Colorization
-
-`pix2pix.py` includes special code to handle colorization with single images instead of pairs, using that looks like this:
-
-```sh
-python pix2pix.py \
-  --mode train \
-  --output_dir photos_train \
-  --max_epochs 200 \
-  --input_dir photos/train \
-  --lab_colorization
-```
-
-In this mode, image A is the black and white image (lightness only), and image B contains the color channels of that image (no lightness information).
-
-### Tips
-
-You can look at the loss and computation graph using tensorboard:
-```sh
-tensorboard --logdir=facades_train
-```
-
-<img src="docs/tensorboard-scalar.png" width="250px"/> <img src="docs/tensorboard-image.png" width="250px"/> <img src="docs/tensorboard-graph.png" width="250px"/>
-
-If you wish to write in-progress pictures as the network is training, use `--display_freq 50`.  This will update `facades_train/index.html` every 50 steps with the current training inputs and outputs.
 
 ## Testing
 
-Testing is done with `--mode test`.  You should specify the checkpoint to use with `--checkpoint`, this should point to the `output_dir` that you created previously with `--mode train`:
+Testing is done with `--mode test`.  You should specify the checkpoint to use with `--checkpoint`, this should point to the `output_dir` that you created previously with `--mode train`. The `--input_dir` states the Video-file you want to process. The ratio of `--scale_size` and `--crop_size` gives the upsampling factor. `5` worked good in our experiments. 
+ 
+- `--is_csv=1` will produce a list of localized events. 
+- `--is_frc=1` will produce two TIF-files where one sums only over even, the other over odd frames (to measure the FRC in Fiji for example)
+- `--x_center` and `y_center` are set to `-1` you're asked to choose the center of the video where it gets cropped on screen.
+ 
+
+
+
 
 ```sh
+
+# for videos - upsampling ~5
+# Change the directory where you'Ve downloaded the Repo
+cd /home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/PYTHON/pix2pix-tensorflow
+
 python pix2pix.py \
-  --mode test \
-  --output_dir facades_test \
-  --input_dir facades/val \
-  --checkpoint facades_train
+--mode test \
+--input_dir ./STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_05_09_15_09_17_ISO3200_texp_1_30_newsample.mp4 \
+--batch_size 1 \
+--output_dir ./dump \
+--scale_size 1792 \
+--checkpoint train_overnight_1_2_3_cluster_4_GANupdaterule_synthetic \
+--roi_size 360 \
+--is_csv 1 \
+--is_tif 0 \
+--is_frc 1 \
+--x_center -1 \
+--y_center -1 \
+--max_steps 6000 
 ```
 
 The testing mode will load some of the configuration options from the checkpoint provided so you do not need to specify `which_direction` for instance.
 
-The test run will output an HTML file at `facades_test/index.html` that shows input/output/target image sets:
-
-<img src="docs/test-html.png" width="300px"/>
-
-## Code Validation
-
-Validation of the code was performed on a Linux machine with a ~1.3 TFLOPS Nvidia GTX 750 Ti GPU and an Azure NC6 instance with a K80 GPU.
-
-```sh
-git clone https://github.com/affinelayer/pix2pix-tensorflow.git
-cd pix2pix-tensorflow
-python tools/download-dataset.py facades
-sudo nvidia-docker run \
-  --volume $PWD:/prj \
-  --workdir /prj \
-  --env PYTHONUNBUFFERED=x \
-  affinelayer/pix2pix-tensorflow \
-    python pix2pix.py \
-      --mode train \
-      --output_dir facades_train \
-      --max_epochs 200 \
-      --input_dir facades/train \
-      --which_direction BtoA
-sudo nvidia-docker run \
-  --volume $PWD:/prj \
-  --workdir /prj \
-  --env PYTHONUNBUFFERED=x \
-  affinelayer/pix2pix-tensorflow \
-    python pix2pix.py \
-      --mode test \
-      --output_dir facades_test \
-      --input_dir facades/val \
-      --checkpoint facades_train
-```
-
-Comparison on facades dataset:
-
-| Input | Tensorflow | Torch | Target |
-| --- | --- | --- | --- |
-| <img src="docs/1-inputs.png" width="256px"> | <img src="docs/1-tensorflow.png" width="256px"> | <img src="docs/1-torch.jpg" width="256px"> | <img src="docs/1-targets.png" width="256px"> |
-| <img src="docs/5-inputs.png" width="256px"> | <img src="docs/5-tensorflow.png" width="256px"> | <img src="docs/5-torch.jpg" width="256px"> | <img src="docs/5-targets.png" width="256px"> |
-| <img src="docs/51-inputs.png" width="256px"> | <img src="docs/51-tensorflow.png" width="256px"> | <img src="docs/51-torch.jpg" width="256px"> | <img src="docs/51-targets.png" width="256px"> |
-| <img src="docs/95-inputs.png" width="256px"> | <img src="docs/95-tensorflow.png" width="256px"> | <img src="docs/95-torch.jpg" width="256px"> | <img src="docs/95-targets.png" width="256px"> |
-
-## Unimplemented Features
-
-The following models have not been implemented:
-- defineG_encoder_decoder
-- defineG_unet_128
-- defineD_pixelGAN
 
 ## Citation
-If you use this code for your research, please cite the paper this code is based on: <a href="https://arxiv.org/pdf/1611.07004v1.pdf">Image-to-Image Translation Using Conditional Adversarial Networks</a>:
+If you use this code for your research, please cite the paper this code is based on: <a href="https://arxiv.org/abs/1804.06244">cellSTORM - cost-effective super-resolution on a cellphone using dSTORM</a>:
 
 ```
-@article{pix2pix2016,
-  title={Image-to-Image Translation with Conditional Adversarial Networks},
-  author={Isola, Phillip and Zhu, Jun-Yan and Zhou, Tinghui and Efros, Alexei A},
+@article{cellstorm2018,
+  title={cellSTORM - cost-effective super-resolution on a cellphone using dSTORM},
+  author={Benedict Diederich*, Patrick Then, Alexander Jügler, Ronny Forster, Rainer Heintzmann},
   journal={arxiv},
-  year={2016}
+  year={2018}
 }
 ```
 
 ## Acknowledgments
 This is a port of [pix2pix](https://github.com/phillipi/pix2pix) from Torch to Tensorflow.  It also contains colorspace conversion code ported from Torch.  Thanks to the Tensorflow team for making such a quality library!  And special thanks to Phillip Isola for answering my questions about the pix2pix code.
+
+Kudos to [Christopher Hesse](https://github.com/christopherhesse) for his amazing pix2pix TensorFlow implementation and [Gene Kogan](http://genekogan.com/) for his inspirational workshop. Many thanks to Ingo Fuchs for the help with the Android APP.
+
+

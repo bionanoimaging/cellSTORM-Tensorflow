@@ -19,7 +19,7 @@ import os
 # own modules
 import model as model
 import data as data
-
+import cv2
 
 
 # training:  --mode train   --output_dir cellstorm_train  --max_epochs 1   --input_dir /home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/01_CELLPHONE_GT_PAIRS/MOV_2018_03_02_11_27_56_ISO3200_texp_1_200_RandomBlink_v5testSTORM_random_psf_v5_shifted_combined_lines_texp_1_85/train   --which_direction BtoA
@@ -46,6 +46,7 @@ parser.add_argument("--lr", type=float, default=0.0002, help="initial learning r
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--l1_sparse_weight", type=float, default=100.0, help="weight on L1 sparsity term for generator outputs")
+parser.add_argument("--tv_weight", type=float, default=0.0, help="weight on TV sparsity term for generator outputs")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 
 parser.add_argument("--roi_size", type=int, default=256, help="size of the roi where the frames should be cropped out")
@@ -62,14 +63,15 @@ parser.add_argument("--is_frc", type=int, default=0, help="Want to save two sepe
 
 # export options
 opt = parser.parse_args()
+if not(opt.checkpoint==None):
+    opt.checkpoint = './checkpoints/'+opt.checkpoint
 
-
-# execute explicitly on GPU
+# execute explicitly on GPU q
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
 if(opt.how_many_gpu==2):
-    os.environ["CUDA_VISIBLE_DEVICES"]="0"
-else:
     os.environ["CUDA_VISIBLE_DEVICES"]="0,1"
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"]="0"
         
     
 # initialize the random numbers
@@ -130,6 +132,7 @@ else:
         if (iterindex == 0):
             examples = data.load_examples_h5(filename, batch_size=opt.batch_size)
         else:
+            break
             examples_tmp = data.load_examples_h5(filename, batch_size=opt.batch_size)
             examples = data.merge_examples(examples, examples_tmp) # merges the datasets
             
@@ -168,6 +171,7 @@ spikes_tf = tf.placeholder(tf.float32, shape=(opt.batch_size, im_xdim, im_ydim, 
 gan_weight_np = opt.gan_weight
 l1_weight_np = opt.l1_weight
 l1_sparse_weight_np = opt.l1_sparse_weight
+TV_weight_np = opt.tv_weight
 lr_np = opt.lr
 beta_np = opt.beta1
 
@@ -175,11 +179,12 @@ beta_np = opt.beta1
 gan_tf = tf.placeholder(tf.float32, shape=[])
 l1_weight_tf = tf.placeholder(tf.float32, shape=[])
 l1_sparse_weight_tf = tf.placeholder(tf.float32, shape=[])
-lr_tf = tf.placeholder(tf.float32, shape=[])
-beta1_tf = tf.Variable(beta_np)
+TV_weight_tf = tf.constant(TV_weight_np)
+lr_tf = tf.constant(lr_np)
+beta1_tf = tf.constant(beta_np)
 
 # inputs and targets are [batch_size, height, width, channels]
-C2Pmodel = model.create_model(inputs_tf, outputs_tf, opt.ndf, opt.ngf, gan_tf, l1_weight_tf, l1_sparse_weight_tf, lr_tf, beta1_tf)
+C2Pmodel = model.create_model(inputs_tf, outputs_tf, opt.ndf, opt.ngf, gan_tf, l1_weight_tf, l1_sparse_weight_tf, lr_tf, beta1_tf, TV_weight_tf)
 
 # reverse any processing on images so they can be written to disk or displayed to user
 inputs = data.deprocess_tf(C2Pmodel.inputs)
@@ -231,10 +236,12 @@ tf.summary.scalar("discriminator_loss", C2Pmodel.discrim_loss)
 tf.summary.scalar("generator_loss_GAN", C2Pmodel.gen_loss_GAN)
 tf.summary.scalar("generator_loss_L1", C2Pmodel.gen_loss_L1)
 tf.summary.scalar("generator_loss_sparse_L1", C2Pmodel.gen_loss_sparse_L1)
+tf.summary.scalar("generator_loss_TV", C2Pmodel.gen_loss_TV)
 
 
 # add histogramm summary for all trainable values
 for var in tf.trainable_variables():
+    print(var.op.name )
     tf.summary.histogram(var.op.name + "/values", var)
 
 # add histogramm summary for gradients
@@ -279,7 +286,7 @@ if(1):
 
         start = time.time()
         experiment_name = opt.input_dir.split("/")[-1]
-        network_name =  opt.checkpoint
+        network_name =  opt.checkpoint.split("/")[-1]
         
          # create filedir according to the filename
         myfile_dir = ('./myresults/' + experiment_name + '_' + network_name)
@@ -292,7 +299,7 @@ if(1):
 
         # index for the current emitter id
         last_index = 0
-        all_list = np.zeros((5,0))
+        all_list = [] 
 
         # if write to csv file - open the file
         
@@ -337,10 +344,12 @@ if(1):
                 else:
                     out_sum_frc1 = out_sum_frc1 + outputs_np # even frames
 
-            
+            # always export the inputs as tif!
+            data.save_as_tif(inputs_np, experiment_name, network_name, 'inputs')
+                
             if opt.is_tif:
-                # save frames to TIF 
-                data.save_as_tif(inputs_np, outputs_np, experiment_name, network_name)
+                # save frames to TIF if necessary
+                data.save_as_tif(outputs_np, experiment_name, network_name, 'outputs')
                 
             if opt.is_csv:
                 # get a list with all emitters greater than a certain per-frame intensity threshold value
@@ -356,7 +365,7 @@ if(1):
                 last_index = np.max(id_list) 
                 
                 # concat the different values (like the ThunderSTORM tables) 
-                all_list = np.hstack((all_list, np.vstack((id_list, frame_list, loc_list[:,0], loc_list[:,1], int_list))))
+                all_list.append((np.vstack((id_list, frame_list, loc_list[:,0], loc_list[:,1], int_list))))
     
 
            
@@ -367,18 +376,21 @@ if(1):
     
         out_path_inputs = os.path.join(myfile_dir, experiment_name+'output_sum.tif')    
         # save 32bit float (== single) tiff
-        tif.imsave(out_path_inputs, np.float32(out_sum/np.max(out_sum)*100)) # also supports 64bit but ImageJ does not
+        out_sum_eq = out_sum-np.min(out_sum) # clip some values just for displaying purposes! 
+        out_sum_eq[np.where(out_sum_eq > 3*np.mean(out_sum_eq))] = 3*np.mean(out_sum_eq)
+        tif.imsave(out_path_inputs, np.float32(out_sum_eq)) # also supports 64bit but ImageJ does not
         
         if opt.is_frc == 1: # if frc is true, there will be two sum-files to compute the FRC
             out_path_inputs_1 = os.path.join(myfile_dir, experiment_name+'output_sum_frc1.tif')    
-            tif.imsave(out_path_inputs_1, np.float32(out_sum_frc2*100)) # also supports 64bit but ImageJ does not    
+            tif.imsave(out_path_inputs_1, np.float32(out_sum_frc1*100)) # also supports 64bit but ImageJ does not    
             out_path_inputs_2 = os.path.join(myfile_dir, experiment_name+'output_sum_frc2.tif')    
             tif.imsave(out_path_inputs_2, np.float32(out_sum_frc2*100)) # also supports 64bit but ImageJ does not    
 
         
         
         if opt.is_csv:
-            csv_filename = os.path.join(myfile_dir, experiment_name+'output_sum.csv')  
+            csv_filename = os.path.join(myfile_dir, experiment_name+'output_sum.csv') 
+            all_list = np.hstack(all_list)
             data.write_to_csv(all_list, csv_filename)
             #np.savetxt(csv_filename, all_list, delimiter=",")
 
@@ -402,8 +414,8 @@ if(1):
                 def should(freq):
                     return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
                 
-                # only train the generator for the first 1000 steps 
-                if global_step < 1000 and np.mod(global_step, 5)==0:
+                # only train the generator for the first 1000 steps; Then sneak in the GAN loss every 3rd iteration 
+                if global_step < 1000 or (np.mod(global_step, 3) !=0):
                     current_gan_weight_np = 0
                 else:
                     current_gan_weight_np = gan_weight_np
@@ -417,31 +429,21 @@ if(1):
                     input_np = all_inputs[step:step+opt.batch_size,:,:,:]
                     targets_np = all_targets[step:step+opt.batch_size,:,:,:]
                     spikes_np = all_spikes[step:step+opt.batch_size,:,:,:]
-                    
+
                     # reduce the cost-function
-                    sess.run(C2Pmodel.train, feed_dict= {inputs_tf:input_np, 
-                                                         outputs_tf:spikes_np,
-                                                         gan_tf:current_gan_weight_np, 
-                                                        l1_weight_tf:l1_weight_np, 
-                                                        l1_sparse_weight_tf:l1_sparse_weight_np,
-                                                        lr_tf:lr_np})       
+                    sess.run(C2Pmodel.train, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np, gan_tf:current_gan_weight_np, l1_weight_tf:l1_weight_np, l1_sparse_weight_tf:l1_sparse_weight_np})
 
         
 
                     if should(opt.progress_freq):
-                        discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1 = sess.run([C2Pmodel.discrim_loss, C2Pmodel.gen_loss_GAN, C2Pmodel.gen_loss_L1, C2Pmodel.gen_loss_sparse_L1])
+                        discrim_loss, gen_loss_GAN, gen_loss_L1, gen_loss_sparse_L1, gen_loss_TV = sess.run([C2Pmodel.discrim_loss, C2Pmodel.gen_loss_GAN, C2Pmodel.gen_loss_L1, C2Pmodel.gen_loss_sparse_L1, C2Pmodel.gen_loss_TV])
         
                     if should(opt.display_freq):
                         merged_summary_op = tf.summary.merge_all()
                         # Write logs at every iteration
                         
                         print("recording summary")
-                        summary  = sess.run(merged_summary_op, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np, 
-                                                        gan_tf:current_gan_weight_np, 
-                                                        l1_weight_tf:l1_weight_np, 
-                                                        l1_sparse_weight_tf:l1_sparse_weight_np,
-                                                        lr_tf:lr_np})
-                            
+                        summary  = sess.run(merged_summary_op, feed_dict= {inputs_tf:input_np, outputs_tf:spikes_np, gan_tf:current_gan_weight_np, l1_weight_tf:l1_weight_np, l1_sparse_weight_tf:l1_sparse_weight_np})                            
                         # add all summaries to the writer
                         # Merge all summaries into a single op            
                         summary_writer.add_summary(summary, global_step )
@@ -454,6 +456,8 @@ if(1):
                         print("gen_loss_GAN", gen_loss_GAN)
                         print("gen_loss_L1", gen_loss_L1)
                         print("gen_loss_sparse_L1", gen_loss_sparse_L1)
+                        print("gen_loss_TV", gen_loss_TV)
+                        print("current_gan_weight_np", current_gan_weight_np)
             
                     if should(opt.save_freq):
                         print("saving model")

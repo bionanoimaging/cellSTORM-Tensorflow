@@ -1,0 +1,39 @@
+name: cellstorm
+channels: !!python/tuple
+- menpo
+- defaults
+dependencies:
+- numpy=1.13.0=py35_0
+- openssl=1.0.2l=0
+- pip=9.0.1=py35_1
+- python=3.5.3=1
+- readline=6.2=2
+- setuptools=27.2.0=py35_0
+- sqlite=3.13.0=0
+- tk=8.5.18=0
+- wheel=0.29.0=py35_0
+- xz=5.2.2=1
+- zlib=1.2.8=3
+- argparse
+- os
+- json
+- matplotlib.pyplot
+- tifffile
+- collections
+- skvideo.io
+- scipy.misc
+- scipy.ndimage
+- cv2
+- h5py
+- sklearn.model_selection
+- pip:
+  - backports.weakref==1.0rc1
+  - bleach==1.5.0
+  - html5lib==0.9999999
+  - imutils==0.4.3
+  - markdown==2.6.8
+  - protobuf==3.3.0
+  - six==1.10.0
+  - tensorflow==1.8.0
+prefix: /Users/bene/anaconda/envs/face2face-demo
+

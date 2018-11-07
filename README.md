@@ -24,6 +24,14 @@ Prerequisites: This software was tested on a Ubuntu 16.04 LTS 64-bit operating s
 2. MatlabR2016b with `dip_image` toolbox ([Details](https://github.com/bionanoimaging/cellSTORM-MATLAB))
 3. Anaconda distribution 5.1 for Ubuntu (64-bit) with Tensorflow 1.8.0
 
+#### Necessary packages
+`pip install sk-video`
+`pip install tifffile`
+`pip install tensorflow-gpu`
+`pip install opencv-python`
+`pip install sk-video`
+
+
 ### Recommended
 - Linux with Tensorflow GPU edition + cuDNN
 

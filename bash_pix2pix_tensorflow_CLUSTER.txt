@@ -1,0 +1,110 @@
+
+cd /home/diederich/Documents/STORM/PYTHON/pix2pix-tensorflow/WorkingSolutionTFLITE
+
+tensorboard --logdir=cellstorm_simple_lite_4 
+
+cd /home/diederich/Documents/STORM/PYTHON/pix2pix-tensorflow/WorkingSolutionTFLITE
+
+python pix2pix.py \
+--mode train \
+--input_dir ./ \
+--display_freq 500 \
+--ndf 16 --ngf 16 \
+--beta1 0.5 --lr 0.0001 \
+--output_dir cellstorm_simple_lite_4 \
+--scale_size 256 \
+--max_epochs 100 \
+--l1_weight 100 \
+--l1_sparse_weight 100 \
+--save_freq 500 \
+--gan_weight 5 
+
+
+# for videos - upsampling ~5
+cd /home/diederich/Documents/STORM/PYTHON/pix2pix-tensorflow/WorkingSolutionTFLITE
+
+
+python pix2pix.py \
+--mode test \
+--input_dir /home/diederich/Documents/STORM/DATASET_NN/All_Videos/2017-12-18_18.29.45.mp4 \
+--batch_size 1 \
+--output_dir ./dump \
+--scale_size 1792 \
+--checkpoint cellstorm_simple_lite_4 \
+--roi_size 360 \
+--is_csv 1 \
+--is_tif 0 \
+--is_frc 1 \
+--x_center -1 \
+--y_center -1 \
+--max_steps 100 
+
+
+
+
+# List of available video files
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/MATLAB/cellSTORM-KERAS/testStack_SimulatedMicrotubules_RF30.m4v
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_04_20_15_39_33_Sample_Larve_ISO1200_texp1_60.mp4
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2017_12_18_18_03_46.mp4
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_04_20_16_48_02_Alex_Sample_ISO3200_texp_1_60.mp4
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/2017-12-18_18.29.45.mp4
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_05_09_14_15_21_ISO3200_texp_1_30_newsample.mp4
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/2017-12-18_18.29.45.mp4 
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_05_09_15_09_17_ISO3200_texp_1_30_newsample.mp4 # potentially candidate for NN
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_05_09_15_32_13_ISO6400_texp_1_30_newsample.mp4
+ /home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/MATLAB/Alex_Images_Vergleich/Stack/test_density_128_3SNR_Compression_nphotons_500_compression_90.m4v
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/2017-12-18_18.29.45.mp4
+
+# to be processed for paper 
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_05_09_15_32_13_ISO6400_texp_1_30_newsample.mp4
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_04_20_16_31_44_Sample_Larve_ISO1200_texp1_60.mp4
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_05_09_15_09_17_ISO3200_texp_1_30_newsample.mp4 # potentially candidate for NN
+/home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/2017-12-18_18.29.45.mp4 # sampling 3,333
+
+
+
+
+--mode test --input_dir /home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2017_12_18_18_21_25.mp4 --batch_size 1 --output_dir ./dump --scale_size 1280 --checkpoint good_NN --roi_size 256 --is_video 1
+
+
+
+
+
+# for videos - upsampling ~5
+python pix2pix.py \
+--mode test \
+--input_dir /home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/ALL_VIDEOS/MOV_2018_05_09_15_32_13_ISO6400_texp_1_30_newsample.mp4 \
+--batch_size 1 \
+--output_dir ./dump \
+--scale_size 1280 \
+--checkpoint examples_1_2_3 \
+--roi_size 256 \
+--is_video 1 \
+
+
+python pix2pix.py \
+--mode test \
+--output_dir /home/d/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/03_PROCESSED_NN/MOV_2018_01_23_17_57_56oldSample_ISO3200_10xEyepiece_1_processed_TF \
+--checkpoint cellSTORMdeconvresize \
+--input_dir /home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/DATASET_NN/04_UNPROCESSED_RAW_HW/MOV_2018_01_23_17_57_56oldSample_ISO3200_10xEyepiece_1/test
+
+
+
+
+### MOVE files 
+cd  /home/useradmin/Dropbox/Dokumente/Promotion/PROJECTS/STORM/PYTHON/pix2pix-tensorflow/dump/
+cd images
+
+rm -r  result_realA
+rm -r  result_realB
+rm -r  result_fakeB
+
+mkdir result_realA
+mkdir result_realB
+mkdir result_fakeB
+
+mv *targets* ./result_realA/
+mv *inputs* ./result_realB/
+mv *outputs* ./result_fakeB/
+
+
